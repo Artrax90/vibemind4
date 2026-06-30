@@ -181,22 +181,25 @@ export default function App() {
     });
 
     if (smartFilter) {
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
       filtered = filtered.filter(n => {
+        const content = n.content || '';
         switch (smartFilter) {
           case 'recent-week': {
-            const d = new Date(n.updated_at || '');
-            const week = new Date();
-            week.setDate(week.getDate() - 7);
-            return d > week;
+            const dateStr = n.updated_at || n.created_at || '';
+            if (!dateStr) return false;
+            const d = new Date(dateStr);
+            return !isNaN(d.getTime()) && d > weekAgo;
           }
           case 'with-tags':
-            return (n.content || '').includes('#');
+            return /(^|\s)#[a-zA-Zа-яА-Я]/.test(content);
           case 'with-images':
-            return (n.content || '').includes('![');
+            return /!\[.*?\]\(.*?\)/.test(content);
           case 'with-tasks':
-            return (n.content || '').includes('- [ ]') || (n.content || '').includes('- [x]');
+            return /^- \[[ x]\]/m.test(content);
           case 'no-tags':
-            return !(n.content || '').includes('#') && !n.folderId;
+            return !/(^|\s)#[a-zA-Zа-яА-Я]/.test(content) && !n.folderId;
           default:
             return true;
         }

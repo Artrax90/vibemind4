@@ -524,11 +524,30 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                     { icon: CheckCircle, label: t('smart.withTasks'), id: 'with-tasks' },
                     { icon: FileX, label: t('smart.noTags'), id: 'no-tags' },
                   ].map(({ icon: Icon, label, id }) => {
-                    const count = id === 'with-tags' ? notes.filter(n => (n.content || '').includes('#')).length
-                      : id === 'with-images' ? notes.filter(n => (n.content || '').includes('![')).length
-                      : id === 'with-tasks' ? notes.filter(n => (n.content || '').includes('- [ ]') || (n.content || '').includes('- [x]')).length
-                      : id === 'no-tags' ? notes.filter(n => !(n.content || '').includes('#') && !n.folderId).length
-                      : id === 'recent-week' ? notes.filter(n => { const d = new Date(n.updated_at || ''); const week = new Date(); week.setDate(week.getDate() - 7); return d > week; }).length
+                    const now = new Date();
+                    const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                    const count = id === 'with-tags' ? notes.filter(n => {
+                      const content = n.content || '';
+                      return /(^|\s)#[a-zA-Zа-яА-Я]/.test(content);
+                    }).length
+                      : id === 'with-images' ? notes.filter(n => {
+                        const content = n.content || '';
+                        return /!\[.*?\]\(.*?\)/.test(content);
+                      }).length
+                      : id === 'with-tasks' ? notes.filter(n => {
+                        const content = n.content || '';
+                        return /^- \[[ x]\]/m.test(content);
+                      }).length
+                      : id === 'no-tags' ? notes.filter(n => {
+                        const content = n.content || '';
+                        return !/(^|\s)#[a-zA-Zа-яА-Я]/.test(content) && !n.folderId;
+                      }).length
+                      : id === 'recent-week' ? notes.filter(n => {
+                        const dateStr = n.updated_at || n.created_at || '';
+                        if (!dateStr) return false;
+                        const d = new Date(dateStr);
+                        return !isNaN(d.getTime()) && d > weekAgo;
+                      }).length
                       : 0;
                     if (count === 0) return null;
                     const isActive = smartFilter === id;
