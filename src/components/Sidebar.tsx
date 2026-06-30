@@ -571,7 +571,12 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                 <div className="mb-3">
                   <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.favorites')}</p>
                   <div className="space-y-0.5">
-                    {notes.filter(n => n.isPinned).sort((a, b) => a.title.localeCompare(b.title)).map(note => (
+                    {notes.filter(n => n.isPinned).sort((a, b) => {
+                      // Sort by: isPinned first, then by updated_at desc
+                      const aTime = new Date(a.updated_at || 0).getTime();
+                      const bTime = new Date(b.updated_at || 0).getTime();
+                      return bTime - aTime;
+                    }).map(note => (
                       <div
                         key={note.id}
                         onClick={() => { onSelectNote(note.id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
