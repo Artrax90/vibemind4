@@ -5,11 +5,12 @@ import Editor from './components/Editor';
 import Chat from './components/Chat';
 import Settings from './components/Settings';
 import GraphView from './components/GraphView';
+import BentoGrid from './components/BentoGrid';
 import ShareModal from './components/ShareModal';
 import SharedNoteView from './components/SharedNoteView';
 import Login from './pages/Login';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText } from 'lucide-react';
+import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
 import { Note, Folder } from './types';
 import { api } from './api/client';
@@ -65,7 +66,7 @@ export default function App() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [unlockedFolders, setUnlockedFolders] = useState<Set<string>>(new Set());
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar'>('preview');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento'>('preview');
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -364,6 +365,13 @@ export default function App() {
             >
               <Calendar size={16} />
             </button>
+            <button
+              onClick={() => setViewMode('bento')}
+              className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'bento' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}
+              title={t('app.bento')}
+            >
+              <LayoutGrid size={16} />
+            </button>
           </div>
         )}
 
@@ -434,6 +442,21 @@ export default function App() {
                   ));
                 })()}
               </div>
+            </motion.div>
+          ) : viewMode === 'bento' ? (
+            <motion.div
+              key="bento"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="h-full w-full"
+            >
+              <BentoGrid
+                notes={availableNotes}
+                folders={folders}
+                activeNoteId={activeNoteId}
+                onNoteClick={handleNoteSelect}
+              />
             </motion.div>
           ) : viewMode === 'calendar' ? (
             <motion.div

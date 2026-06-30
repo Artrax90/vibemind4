@@ -514,18 +514,22 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                 <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.smartFolders')}</p>
                 <div className="space-y-0.5">
                   {[
-                    { icon: Clock, label: t('smart.recentWeek'), filter: (n: Note) => { const d = new Date(n.updated_at || ''); const week = new Date(); week.setDate(week.getDate() - 7); return d > week; }},
-                    { icon: Hash, label: t('smart.withTags'), filter: (n: Note) => (n.content || '').includes('#') },
-                    { icon: Image, label: t('smart.withImages'), filter: (n: Note) => (n.content || '').includes('![') },
-                    { icon: CheckCircle, label: t('smart.withTasks'), filter: (n: Note) => (n.content || '').includes('- [ ]') || (n.content || '').includes('- [x]') },
-                    { icon: FileX, label: t('smart.noTags'), filter: (n: Note) => !(n.content || '').includes('#') && !n.folderId },
-                  ].map(({ icon: Icon, label, filter }) => {
-                    const count = notes.filter(filter).length;
+                    { icon: Clock, label: t('smart.recentWeek'), id: 'recent-week' },
+                    { icon: Hash, label: t('smart.withTags'), id: 'with-tags' },
+                    { icon: Image, label: t('smart.withImages'), id: 'with-images' },
+                    { icon: CheckCircle, label: t('smart.withTasks'), id: 'with-tasks' },
+                    { icon: FileX, label: t('smart.noTags'), id: 'no-tags' },
+                  ].map(({ icon: Icon, label, id }) => {
+                    const count = id === 'with-tags' ? notes.filter(n => (n.content || '').includes('#')).length
+                      : id === 'with-images' ? notes.filter(n => (n.content || '').includes('![')).length
+                      : id === 'with-tasks' ? notes.filter(n => (n.content || '').includes('- [ ]') || (n.content || '').includes('- [x]')).length
+                      : id === 'no-tags' ? notes.filter(n => !(n.content || '').includes('#') && !n.folderId).length
+                      : id === 'recent-week' ? notes.filter(n => { const d = new Date(n.updated_at || ''); const week = new Date(); week.setDate(week.getDate() - 7); return d > week; }).length
+                      : 0;
                     if (count === 0) return null;
                     return (
                       <div
-                        key={label}
-                        onClick={() => { document.dispatchEvent(new CustomEvent('smart-filter', { detail: { filter } })); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
+                        key={id}
                         className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors duration-200"
                       >
                         <Icon size={14} className="shrink-0 text-sidebar-foreground/55" />
