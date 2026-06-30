@@ -1456,31 +1456,38 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     note = db.query(Note).filter(Note.title.ilike(f"%{slug.replace('-', ' ')}%")).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    
-    html = f"""<!DOCTYPE html>
+
+    safe_content = (note.content or '').replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
+    description = (note.content or '')[:160]
+
+    html = """<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{note.title}</title>
-    <meta name="description" content="{note.content[:160] if note.content else ''}">
+    <title>""" + note.title + """</title>
+    <meta name="description" content=\"""" + description + """\">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
     <style>
-        body {{ font-family: 'Geist', system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem; background: #F7F7F5; color: #333; }}
-        h1 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 2.5rem; margin-bottom: 1rem; }}
-        pre {{ background: #1e1e2d; color: #e2e8f0; padding: 1rem; border-radius: 0.75rem; overflow-x: auto; }}
-        code {{ font-family: 'Geist Mono', monospace; }}
-        blockquote {{ border-left: 3px solid #7C5CFF; padding-left: 1rem; color: #666; }}
-        img {{ max-width: 100%; border-radius: 0.75rem; }}
+        body { font-family: 'Geist', system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem; background: #F7F7F5; color: #333; }
+        h1 { font-family: 'Instrument Serif', Georgia, serif; font-size: 2.5rem; margin-bottom: 1rem; }
+        h2 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 1.5rem; }
+        pre { background: #1e1e2d; color: #e2e8f0; padding: 1rem; border-radius: 0.75rem; overflow-x: auto; }
+        code { font-family: 'Geist Mono', monospace; }
+        blockquote { border-left: 3px solid #7C5CFF; padding-left: 1rem; color: #666; }
+        img { max-width: 100%; border-radius: 0.75rem; }
+        a { color: #7C5CFF; }
     </style>
 </head>
 <body>
     <article>
-        <h1>{note.title}</h1>
+        <h1>""" + note.title + """</h1>
         <div id="content"></div>
     </article>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
-        document.getElementById('content').innerHTML = marked.parse(`{note.content.replace('`', '\\`')}`);
+        document.getElementById('content').innerHTML = marked.parse(`""" + safe_content + """`);
     </script>
 </body>
 </html>"""
