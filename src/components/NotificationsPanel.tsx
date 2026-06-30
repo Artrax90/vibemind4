@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Bell, Check, Trash2, Clock, FileText } from 'lucide-react';
 import { api } from '../api/client';
@@ -19,6 +19,20 @@ export default function NotificationsPanel({ onNoteClick }: { onNoteClick: (id: 
   const [isOpen, setIsOpen] = useState(false);
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+
+  // Close on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen]);
 
   useEffect(() => {
     loadReminders();
@@ -73,7 +87,7 @@ export default function NotificationsPanel({ onNoteClick }: { onNoteClick: (id: 
   const pastReminders = reminders.filter(r => r.is_sent);
 
   return (
-    <div className="relative">
+    <div className="relative" ref={panelRef}>
       {/* Bell button */}
       <button
         onClick={() => setIsOpen(!isOpen)}
