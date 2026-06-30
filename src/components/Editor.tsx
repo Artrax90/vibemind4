@@ -8,13 +8,7 @@ import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Bold, Italic, Link, Image, List, ListOrdered, Code, Table, Hash, ChevronDown } from 'lucide-react';
 
-function SyntaxBlock({ code, language }: { code: string; language: string }) {
-  return (
-    <pre className="bg-[#1e1e2d] text-[#e2e8f0] p-4 rounded-xl overflow-x-auto my-4 font-mono text-sm">
-      <code>{code}</code>
-    </pre>
-  );
-}
+// Code block renderer - kept simple to avoid crashes
 
 type EditorProps = {
   note: Note;
@@ -186,8 +180,11 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
                 a: ({children, ...props}) => <a {...props} className="text-primary underline decoration-primary/30 hover:decoration-primary">{children}</a>,
                 code: ({children, className}) => {
                   if (className) {
-                    const lang = className.replace('language-', '');
-                    return <SyntaxBlock code={String(children).replace(/\n$/, '')} language={lang} />;
+                    return (
+                      <pre className="bg-[#1e1e2d] text-[#e2e8f0] p-4 rounded-xl overflow-x-auto my-4 font-mono text-sm">
+                        <code>{children}</code>
+                      </pre>
+                    );
                   }
                   return <code className="bg-muted px-1.5 py-0.5 rounded-lg text-sm font-mono">{children}</code>;
                 },
