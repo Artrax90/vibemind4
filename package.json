@@ -1,0 +1,92 @@
+{
+  "name": "vibemind",
+  "private": true,
+  "version": "1.0.1",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "vite --port=3000 --host=0.0.0.0",
+    "dev:desktop": "cross-env VITE_APP_TARGET=desktop vite --port=3000 --host=0.0.0.0",
+    "build": "vite build",
+    "build:desktop": "cross-env VITE_APP_TARGET=desktop vite build",
+    "build:android": "npm run build:desktop && shx cp dist/index-desktop.html dist/index.html && npx cap sync android",
+    "preview": "vite preview",
+    "clean": "rm -rf dist",
+    "lint": "tsc --noEmit",
+    "electron:dev": "cross-env NODE_ENV=development electron .",
+    "electron:build": "npm run build:desktop && electron-builder"
+  },
+  "build": {
+    "appId": "com.vibemind.desktop.v3",
+    "productName": "VibeMind Desktop App",
+    "directories": {
+      "output": "dist-electron"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico",
+      "artifactName": "${productName} Setup ${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "include": "electron/installer.nsh",
+      "shortcutName": "VibeMind Desktop",
+      "uninstallDisplayName": "VibeMind Desktop"
+    },
+    "linux": {
+      "target": "AppImage"
+    },
+    "asarUnpack": [
+      "**/node_modules/better-sqlite3/**/*"
+    ]
+  },
+  "dependencies": {
+    "@capacitor-community/sqlite": "^8.1.0",
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/core": "^8.3.0",
+    "@capacitor/haptics": "^8.0.2",
+    "@capacitor/keyboard": "^8.0.3",
+    "@capacitor/status-bar": "^8.0.2",
+    "@dnd-kit/core": "^6.3.1",
+    "@dnd-kit/sortable": "^10.0.0",
+    "@dnd-kit/utilities": "^3.2.2",
+    "@google/genai": "^1.29.0",
+    "@tailwindcss/vite": "^4.1.14",
+    "@vitejs/plugin-react": "^5.0.4",
+    "better-sqlite3": "^12.9.0",
+    "clsx": "^2.1.1",
+    "dotenv": "^17.2.3",
+    "electron-context-menu": "^4.1.2",
+    "express": "^4.21.2",
+    "framer-motion": "^12.38.0",
+    "jszip": "^3.10.1",
+    "lucide-react": "^0.546.0",
+    "motion": "^12.23.24",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-force-graph-2d": "^1.29.1",
+    "react-markdown": "^10.1.0",
+    "react-syntax-highlighter": "^16.1.1",
+    "remark-breaks": "^4.0.0",
+    "remark-gfm": "^4.0.1",
+    "tailwind-merge": "^3.5.0",
+    "vite": "^6.2.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.3.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "autoprefixer": "^10.4.21",
+    "cross-env": "^7.0.3",
+    "electron": "^41.2.0",
+    "electron-builder": "^26.8.1",
+    "shx": "^0.4.0",
+    "tailwindcss": "^4.1.14",
+    "tsx": "^4.21.0",
+    "typescript": "~5.8.2",
+    "vite": "^6.2.0"
+  }
+}

@@ -1,0 +1,69 @@
+services:
+  app:
+    build: .
+    image: artrax/vibemind:latest
+    container_name: vibemind_app
+    ports:
+      - "3344:3344"
+    volumes:
+      - vibemind_storage:/app/storage
+    environment:
+      - DATABASE_URL=postgresql://vibemind:vibemind@db:5432/vibemind
+      - REDIS_URL=redis://redis:6379/0
+      - ENCRYPTION_KEY=super-secret-default-key-change-me-later-123
+      - TZ=Europe/Moscow
+      - STT_HOST=vosk
+      - STT_PORT=10300
+    restart: always
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      vosk:
+        condition: service_started
+
+  db:
+    image: ankane/pgvector:v0.5.1
+    container_name: vibemind_db
+    ports:
+      - "5433:5432"
+    environment:
+      - POSTGRES_USER=vibemind
+      - POSTGRES_PASSWORD=vibemind
+      - POSTGRES_DB=vibemind
+    volumes:
+      - vibemind_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vibemind -d vibemind"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    container_name: vibemind_redis
+    restart: always
+
+  vosk:
+    image: rhasspy/wyoming-vosk
+    container_name: wyoming-vosk
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - ./vosk-model:/data
+    command:
+      - --uri
+      - tcp://0.0.0.0:10300
+      - --data-dir
+      - /data
+      - --download-dir
+      - /data
+      - --language
+      - ru
+
+volumes:
+  vibemind_db_data:
+  vibemind_storage:

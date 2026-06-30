@@ -1,0 +1,312 @@
+import React, { useEffect, useCallback } from 'react';
+import { useSync } from '../contexts/SyncContext';
+import { dbApi } from '../lib/db';
+
+type SyncManagerProps = {
+  onSyncComplete?: () => void;
+};
+
+export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
+  const { setStatus, setLastSync, setProgress } = useSync();
+
+  const log = (msg: string, isError = false) => {
+    const timestamp = new Date().toLocaleTimeString();
+    const formattedMsg = `[${timestamp}] ${msg}`;
+    if (isError) console.error(formattedMsg);
+    else console.log(formattedMsg);
+    
+    if (!(window as any).syncLogs) (window as any).syncLogs = [];
+    (window as any).syncLogs.push(formattedMsg);
+    if ((window as any).syncLogs.length > 100) (window as any).syncLogs.shift();
+  };
+
+  const isSyncingRef = React.useRef(false);
+
+  const performSync = useCallback(async () => {
+    if (isSyncingRef.current) return;
+
+    try {
+      isSyncingRef.current = true;
+      const config = await dbApi.getSyncConfig();
+      if (!config.server_url || !config.username || !config.password) {
+        log('Sync skipped: Missing configuration');
+        return;
+      }
+
+      let baseUrl = config.server_url.trim().replace(/\/$/, '');
+      if (baseUrl && !baseUrl.startsWith('http://') && !baseUrl.startsWith('https://')) {
+        baseUrl = 'http://' + baseUrl;
+      }
+      setStatus('syncing');
+      setProgress(0, 0);
+      log(`Authenticating for sync at ${baseUrl}...`);
+      
+      const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: config.username, password: config.password }),
+      });
+
+      if (!loginRes.ok) {
+        const errorText = await loginRes.text();
+        log(`Sync authentication failed: ${loginRes.status} ${errorText}`, true);
+        setStatus('error');
+        return;
+      }
+
+      const { access_token } = await loginRes.json();
+      log('Authentication successful. Starting background sync...');
+      
+      // 1. Get local data
+      const [localNotes, localFolders, deletedItems] = await Promise.all([
+        dbApi.getNotes(),
+        dbApi.getFolders(),
+        dbApi.getDeletedItems ? dbApi.getDeletedItems() : Promise.resolve([])
+      ]);
+      
+      const dirtyNotes = localNotes.filter((n: any) => n.is_dirty === 1);
+      const dirtyFolders = localFolders.filter((f: any) => f.is_dirty === 1);
+      log(`Found ${dirtyNotes.length} notes, ${dirtyFolders.length} folders, and ${deletedItems.length} deleted items to push.`);
+
+      // 2. Pull updates from server
+      log('Fetching remote data...');
+      const [notesRes, foldersRes] = await Promise.all([
+        fetch(`${baseUrl}/api/notes`, { headers: { 'Authorization': `Bearer ${access_token}` } }),
+        fetch(`${baseUrl}/api/folders`, { headers: { 'Authorization': `Bearer ${access_token}` } })
+      ]);
+      
+      if (!notesRes.ok) throw new Error(`Failed to fetch remote notes: ${notesRes.status}`);
+      if (!foldersRes.ok) throw new Error(`Failed to fetch remote folders: ${foldersRes.status}`);
+      
+      const remoteNotes = await notesRes.json();
+      const remoteFolders = await foldersRes.json();
+
+      const totalToSync = deletedItems.length + dirtyNotes.length + dirtyFolders.length + remoteNotes.length + remoteFolders.length;
+      let currentSynced = 0;
+      setProgress(totalToSync, 0);
+
+      // Filter out items we just successfully deleted so we don't pull them back right away
+      let finalRemoteNotes = remoteNotes;
+      let finalRemoteFolders = remoteFolders;
+      
+      // 2.5 Process Deletions
+      for (const delItem of deletedItems) {
+        try {
+          const endpoint = delItem.type === 'folder' ? 'folders' : 'notes';
+          const res = await fetch(`${baseUrl}/api/${endpoint}/${delItem.id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${access_token}` }
+          });
+          
+          if (res.ok || res.status === 404) {
+            await dbApi.removeDeletedItem(delItem.id);
+            log(`Pushed deletion for ${delItem.type} ${delItem.id}`);
+            if (delItem.type === 'note') {
+              finalRemoteNotes = finalRemoteNotes.filter((n: any) => n.id !== delItem.id);
+            } else if (delItem.type === 'folder') {
+              finalRemoteFolders = finalRemoteFolders.filter((f: any) => f.id !== delItem.id);
+            }
+          } else {
+            log(`Failed to push deletion for ${delItem.type} ${delItem.id}: ${res.status}`, true);
+          }
+        } catch (e) {
+          log(`Error deleting ${delItem.type} ${delItem.id}: ${e}`, true);
+        }
+        currentSynced++;
+        setProgress(totalToSync, currentSynced);
+      }
+
+      const pushedFolderIds = new Set<string>();
+      // 3. Push dirty folders first
+      for (const folder of dirtyFolders) {
+        try {
+          const res = await fetch(`${baseUrl}/api/folders`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${access_token}`
+            },
+            body: JSON.stringify({
+              id: folder.id,
+              name: folder.name,
+              parentId: folder.parentId,
+              updated_at: folder.updated_at
+            })
+          });
+
+          if (res.ok) {
+            await dbApi.saveFolder({ ...folder, is_dirty: 0 });
+            pushedFolderIds.add(folder.id);
+            log(`Pushed folder: ${folder.name}`);
+          }
+          currentSynced++;
+          setProgress(totalToSync, currentSynced);
+        } catch (e) {
+          log(`Failed to push folder ${folder.id}: ${e}`, true);
+        }
+      }
+
+      const pushedNoteIds = new Set<string>();
+      // 4. Push dirty notes
+      for (const note of dirtyNotes) {
+        try {
+          const res = await fetch(`${baseUrl}/api/notes`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${access_token}`
+            },
+            body: JSON.stringify({
+              id: note.id,
+              title: note.title,
+              content: note.content,
+              folderId: note.folderId,
+              isPinned: note.isPinned === 1,
+              updated_at: note.updated_at
+            })
+          });
+
+          if (res.ok) {
+            await dbApi.saveNote({ ...note, is_dirty: 0 });
+            pushedNoteIds.add(note.id);
+            log(`Pushed note: ${note.title}`);
+          } else {
+            log(`Failed to push note ${note.title}: ${res.status}`, true);
+          }
+          currentSynced++;
+          setProgress(totalToSync, currentSynced);
+        } catch (e) {
+          log(`Failed to push note ${note.id}: ${e}`, true);
+        }
+      }
+
+      // 5. Pull updates from server
+      let hasChanges = false;
+
+      // Pull folders first
+      for (const remoteFolder of finalRemoteFolders) {
+        const localFolder = localFolders.find((f: any) => f.id === remoteFolder.id);
+        const remoteDate = remoteFolder.updated_at ? new Date(remoteFolder.updated_at) : new Date(0);
+        const localDate = localFolder?.updated_at ? new Date(localFolder.updated_at) : new Date(0);
+
+        if (!localFolder || (remoteDate > localDate && localFolder.is_dirty === 0)) {
+          await dbApi.saveFolder({
+            id: remoteFolder.id,
+            name: remoteFolder.name,
+            parentId: remoteFolder.parentId,
+            permission: remoteFolder.permission,
+            isShared: remoteFolder.isShared ? 1 : 0,
+            isSharedByMe: remoteFolder.isSharedByMe ? 1 : 0,
+            isProtected: remoteFolder.isProtected ? 1 : 0,
+            ownerUsername: remoteFolder.ownerUsername,
+            is_dirty: 0,
+            updated_at: remoteFolder.updated_at || new Date().toISOString()
+          });
+          log(`Pulled folder: ${remoteFolder.name}`);
+          hasChanges = true;
+        }
+        currentSynced++;
+        setProgress(totalToSync, currentSynced);
+      }
+
+      // Pull notes
+      for (const remoteNote of finalRemoteNotes) {
+        const localNote = localNotes.find((n: any) => n.id === remoteNote.id);
+        
+        const remoteDate = remoteNote.updated_at ? new Date(remoteNote.updated_at) : new Date(0);
+        const localDate = localNote?.updated_at ? new Date(localNote.updated_at) : new Date(0);
+
+        if (!localNote || (remoteDate > localDate && localNote.is_dirty === 0)) {
+          await dbApi.saveNote({
+            id: remoteNote.id,
+            title: remoteNote.title,
+            content: remoteNote.content,
+            folderId: remoteNote.folderId,
+            isPinned: remoteNote.isPinned ? 1 : 0,
+            permission: remoteNote.permission,
+            isShared: remoteNote.isShared ? 1 : 0,
+            isSharedByMe: remoteNote.isSharedByMe ? 1 : 0,
+            ownerUsername: remoteNote.ownerUsername,
+            is_dirty: 0,
+            updated_at: remoteNote.updated_at || new Date().toISOString()
+          });
+          log(`Pulled note: ${remoteNote.title}`);
+          hasChanges = true;
+        }
+        currentSynced++;
+        setProgress(totalToSync, currentSynced);
+      }
+
+      // 6. Prune local data that no longer exists on server
+      // Refetch local state to get accurate is_dirty status after pushes
+      const [currentLocalNotes, currentLocalFolders] = await Promise.all([
+        dbApi.getNotes(),
+        dbApi.getFolders()
+      ]);
+
+      // Prune folders
+      for (const localFolder of currentLocalFolders) {
+        if (pushedFolderIds.has(localFolder.id)) continue;
+        const remoteFolder = finalRemoteFolders.find((rf: any) => rf.id === localFolder.id);
+        if (!remoteFolder && localFolder.is_dirty === 0) {
+          await dbApi.deleteFolder(localFolder.id);
+          log(`Pruned local folder: ${localFolder.name}`);
+          hasChanges = true;
+        }
+      }
+
+      // Prune notes
+      for (const localNote of currentLocalNotes) {
+        if (pushedNoteIds.has(localNote.id)) continue;
+        const remoteNote = finalRemoteNotes.find((rn: any) => rn.id === localNote.id);
+        if (!remoteNote && localNote.is_dirty === 0) {
+          await dbApi.deleteNote(localNote.id);
+          log(`Pruned local note: ${localNote.title}`);
+          hasChanges = true;
+        }
+      }
+
+      setStatus('success');
+      setLastSync(new Date());
+      log('Sync completed.');
+      
+      // Always notify that sync is finished to alert any listeners
+      window.dispatchEvent(new CustomEvent('sync-finished'));
+      
+      if (hasChanges && onSyncComplete) {
+        // Give a small delay for DB to finalize
+        setTimeout(() => {
+          onSyncComplete();
+        }, 100);
+      }
+      
+      // Reset status to idle after 3 seconds
+      setTimeout(() => setStatus('idle'), 3000);
+    } catch (e) {
+      log(`Sync error: ${e}`, true);
+      setStatus('error');
+    } finally {
+      isSyncingRef.current = false;
+    }
+  }, [onSyncComplete, setStatus, setLastSync, setProgress]);
+
+  useEffect(() => {
+    performSync();
+
+    const handleForceSync = async () => {
+      log('Force sync requested');
+      await performSync();
+      window.dispatchEvent(new CustomEvent('sync-finished'));
+    };
+
+    window.addEventListener('force-sync', handleForceSync);
+
+    const interval = setInterval(performSync, 5 * 60 * 1000);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('force-sync', handleForceSync);
+    };
+  }, [performSync]);
+
+  return null;
+}
