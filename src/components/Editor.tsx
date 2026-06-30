@@ -1,11 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from '../api/client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell, CalendarPlus } from 'lucide-react';
 import ReminderModal from './ReminderModal';
 import PublishModal from './PublishModal';
-import NoteCanvas from './NoteCanvas';
-import { PenTool } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -111,7 +109,6 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [publishSlug, setPublishSlug] = useState<string | null>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
-  const [canvasMode, setCanvasMode] = useState(false);
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -435,36 +432,43 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
           </button>
 
           <button
-            onClick={() => setCanvasMode(!canvasMode)}
-            className={`p-2 rounded-lg transition-colors ${canvasMode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary'}`}
-            title={t('editor.canvasMode')}
+            onClick={async () => {
+              const { api } = await import('../api/client');
+              const status = await api.getCalendarStatus();
+              if (!status.connected) {
+                alert(t('editor.calendarNotConnected') || 'Подключите Google Calendar в настройках');
+                return;
+              }
+              const now = new Date();
+              const later = new Date(now.getTime() + 60 * 60 * 1000);
+              await api.createCalendarEvent({
+                summary: note.title,
+                description: (note.content || '').substring(0, 500),
+                start_datetime: now.toISOString(),
+                end_datetime: later.toISOString()
+              });
+              alert(t('editor.calendarEventCreated') || 'Событие создано в Google Calendar!');
+            }}
+            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
+            title={t('editor.addToCalendar') || 'Добавить в календарь'}
           >
-            <PenTool size={18} />
+            <CalendarPlus size={18} />
           </button>
 
           {note.permission === 'owner' && (
             <button
               onClick={async () => {
                 const { api } = await import('../api/client');
-                const status = await api.getCalendarStatus();
-                if (!status.connected) {
-                  alert(t('editor.calendarNotConnected') || 'Подключите Google Calendar в настройках');
-                  return;
+                const result = await api.publishNote(note.id);
+                if (result.slug) {
+                  setPublishSlug(result.slug);
+                  setShowPublishModal(true);
                 }
-                const now = new Date();
-                const later = new Date(now.getTime() + 60 * 60 * 1000);
-                await api.createCalendarEvent({
-                  summary: note.title,
-                  description: (note.content || '').substring(0, 500),
-                  start_datetime: now.toISOString(),
-                  end_datetime: later.toISOString()
-                });
-                alert(t('editor.calendarEventCreated') || 'Событие создано в Google Calendar!');
               }}
               className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
-              title={t('editor.addToCalendar') || 'Добавить в календарь'}
+              title={t('editor.publish') || 'Опубликовать'}
             >
-              <CalendarPlus size={18} />
+              <Globe size={18} />
             </button>
           )}
         </div>
@@ -748,13 +752,6 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
               <span className="truncate text-muted-foreground">{t('editor.create')}: {autocompleteQuery}</span>
             </button>
           )}
-        </div>
-      )}
-
-      {/* Canvas mode overlay */}
-      {canvasMode && (
-        <div className="absolute inset-0 z-20 bg-background flex flex-col">
-          <NoteCanvas content={content} onChange={(c) => { setContent(c); onUpdate(note.id, { content: c }); }} readOnly={isReadOnly} />
         </div>
       )}
 
