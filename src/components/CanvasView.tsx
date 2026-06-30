@@ -7,6 +7,7 @@ type CanvasViewProps = {
   notes: Note[];
   activeNoteId: string | null;
   onNoteClick: (noteId: string) => void;
+  onAddNote: () => void;
 };
 
 type CardPosition = { id: string; x: number; y: number };
@@ -15,7 +16,7 @@ type CanvasShape = { id: string; type: 'rect' | 'text'; x: number; y: number; wi
 
 type Tool = 'select' | 'connect' | 'text' | 'shape';
 
-export default function CanvasView({ notes, activeNoteId, onNoteClick }: CanvasViewProps) {
+export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote }: CanvasViewProps) {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement>(null);
   const [positions, setPositions] = useState<CardPosition[]>(() => {
@@ -210,6 +211,14 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick }: CanvasV
         >
           <Play size={14} />
         </button>
+
+        <button
+          onClick={onAddNote}
+          className="p-2 rounded-full bg-primary text-primary-foreground shadow-premium ring-1 ring-border/50 transition-colors hover:shadow-premium-lg"
+          title="New Note"
+        >
+          <Plus size={14} />
+        </button>
       </div>
 
       {/* Present mode controls */}
@@ -228,31 +237,34 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick }: CanvasV
         style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
       >
         {/* Arrows */}
-        <svg className="absolute inset-0 w-full h-full pointer-events-none" style={{ overflow: 'visible' }}>
+        <svg className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%', overflow: 'visible', position: 'absolute', top: 0, left: 0 }}>
+          <defs>
+            <marker id="arrowhead" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M 0 0 L 12 4 L 0 8 L 3 4 Z" fill="#6366f1" />
+            </marker>
+          </defs>
           {arrows.map(arrow => {
             const from = getCardPosition(arrow.from);
             const to = getCardPosition(arrow.to);
-            const dx = to.x - from.x;
-            const dy = to.y - from.y;
-            const len = Math.sqrt(dx * dx + dy * dy);
-            if (len === 0) return null;
-            const nx = dx / len;
-            const ny = dy / len;
+            const fromX = from.x + 100;
+            const fromY = from.y + 40;
+            const toX = to.x + 100;
+            const toY = to.y + 40;
+            // Calculate midpoint for curved arrow
+            const midX = (fromX + toX) / 2;
+            const midY = (fromY + toY) / 2 - 30;
             return (
               <g key={arrow.id}>
-                <line
-                  x1={from.x + 100} y1={from.y + 40}
-                  x2={to.x + 100} y2={to.y + 40}
-                  stroke="#94a3b8" strokeWidth={2} markerEnd="url(#arrowhead)"
+                <path
+                  d={`M ${fromX} ${fromY} Q ${midX} ${midY} ${toX} ${toY}`}
+                  fill="none"
+                  stroke="#6366f1"
+                  strokeWidth={2.5}
+                  markerEnd="url(#arrowhead)"
                 />
               </g>
             );
           })}
-          <defs>
-            <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto">
-              <polygon points="0 0, 10 3.5, 0 7" fill="#94a3b8" />
-            </marker>
-          </defs>
         </svg>
 
         {/* Cards */}
