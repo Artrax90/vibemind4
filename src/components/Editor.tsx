@@ -4,7 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
-import { Bold, Italic, Link, Image, List, ListOrdered, Code, Table, Hash } from 'lucide-react';
+import { Bold, Italic, Link, Image, List, ListOrdered, Code, Table, Hash, ChevronDown } from 'lucide-react';
 
 type EditorProps = {
   note: Note;
@@ -21,6 +21,7 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
   const [content, setContent] = useState(note?.content || '');
   const [title, setTitle] = useState(note?.title || '');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [showCodeDropdown, setShowCodeDropdown] = useState(false);
 
   useEffect(() => {
     setContent(note?.content || '');
@@ -51,6 +52,25 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
     }, 0);
   };
 
+  const insertCodeBlock = (lang: string = '') => {
+    if (!textareaRef.current) return;
+    const start = textareaRef.current.selectionStart;
+    const end = textareaRef.current.selectionEnd;
+    const selected = content.substring(start, end);
+    const prefix = '```' + lang + '\n';
+    const suffix = '\n```';
+    const newContent = content.substring(0, start) + prefix + selected + suffix + content.substring(end);
+    setContent(newContent);
+    setShowCodeDropdown(false);
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const pos = selected.length === 0 ? start + prefix.length : start + prefix.length + selected.length + suffix.length;
+        textareaRef.current.setSelectionRange(pos, pos);
+        textareaRef.current.focus();
+      }
+    }, 0);
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
@@ -70,13 +90,37 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
           <button onClick={() => insertMarkdown('**', '**')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Bold"><Bold size={14} /></button>
           <button onClick={() => insertMarkdown('_', '_')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Italic"><Italic size={14} /></button>
           <button onClick={() => insertMarkdown('[', '](url)')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Link"><Link size={14} /></button>
-          <button onClick={() => insertMarkdown('![alt](', ')')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Image"><Image size={14} /></button>
           <div className="w-px h-4 bg-border/50 mx-1" />
-          <button onClick={() => insertMarkdown('- ')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="List"><List size={14} /></button>
-          <button onClick={() => insertMarkdown('1. ')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Ordered List"><ListOrdered size={14} /></button>
-          <div className="w-px h-4 bg-border/50 mx-1" />
-          <button onClick={() => insertMarkdown('`', '`')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Code"><Code size={14} /></button>
-          <button onClick={() => insertMarkdown('```\n', '\n```')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Code Block"><span className="text-xs font-bold">{ }</span></button>
+          <button onClick={() => insertMarkdown('1. ')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Numbered List"><ListOrdered size={14} /></button>
+          <div className="relative">
+            <button
+              onClick={() => setShowCodeDropdown(!showCodeDropdown)}
+              className={`p-1.5 rounded-lg hover:bg-accent transition-colors flex items-center gap-0.5 ${showCodeDropdown ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+              title="Code Block"
+            >
+              <Code size={14} />
+              <ChevronDown size={10} />
+            </button>
+            {showCodeDropdown && (
+              <div className="absolute left-0 top-full mt-1 z-50 bg-card border border-border rounded-xl shadow-premium p-1 w-32 overflow-hidden">
+                {['python', 'javascript', 'bash', 'yaml', 'json', 'sql', 'markdown'].map(lang => (
+                  <button
+                    key={lang}
+                    onClick={() => insertCodeBlock(lang)}
+                    className="w-full text-left px-2 py-1 text-xs hover:bg-muted rounded-lg text-foreground capitalize"
+                  >
+                    {lang}
+                  </button>
+                ))}
+                <button
+                  onClick={() => insertCodeBlock('')}
+                  className="w-full text-left px-2 py-1 text-xs hover:bg-muted rounded-lg text-muted-foreground border-t border-border/50 mt-1"
+                >
+                  Plain Text
+                </button>
+              </div>
+            )}
+          </div>
           <button onClick={() => insertMarkdown('[[', ']]')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Wikilink"><Hash size={14} /></button>
           <button onClick={() => insertMarkdown('| Col1 | Col2 |\n| --- | --- |\n| ', ' |  |')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Table"><Table size={14} /></button>
         </div>
