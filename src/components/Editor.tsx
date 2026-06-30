@@ -121,7 +121,7 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
               </div>
             )}
           </div>
-          <button onClick={() => insertMarkdown('[[', ']]')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Wikilink"><Hash size={14} /></button>
+          <button onClick={() => insertMarkdown('[[', ']]')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors text-xs font-bold" title="Wikilink">[[ ]]</button>
           <button onClick={() => insertMarkdown('| Col1 | Col2 |\n| --- | --- |\n| ', ' |  |')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Table"><Table size={14} /></button>
         </div>
       )}
@@ -141,7 +141,8 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
                 a: ({children, ...props}) => <a {...props} className="text-primary underline decoration-primary/30 hover:decoration-primary">{children}</a>,
                 code: ({children, className}) => {
                   if (className) {
-                    return <code className="block bg-card border border-border/50 rounded-xl p-4 text-sm font-mono overflow-x-auto my-4">{children}</code>;
+                    const lang = className.replace('language-', '');
+                    return <SyntaxBlock code={String(children).replace(/\n$/, '')} language={lang} />;
                   }
                   return <code className="bg-muted px-1.5 py-0.5 rounded-lg text-sm font-mono">{children}</code>;
                 },
