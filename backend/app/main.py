@@ -1523,20 +1523,31 @@ async def publish_note(note_id: str, db: Session = Depends(get_db), current_user
     note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user.id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
-    
+
     slug = note.title.lower().replace(" ", "-").replace("/", "-")[:50]
+    # Store published slug in note content metadata
+    note.content = (note.content or '') + f"\n\n<!-- published:{slug} -->"
+    db.commit()
+
     return {
         "slug": slug,
-        "url": f"/published/{slug}",
+        "url": f"/api/published/{slug}",
         "title": note.title,
         "content": note.content
     }
 
 @app.get("/api/published/{slug}")
 async def get_published_note(slug: str, db: Session = Depends(get_db)):
-    note = db.query(Note).filter(Note.title.ilike(f"%{slug.replace('-', ' ')}%")).first()
+    # Only serve notes that have been explicitly published
+    notes = db.query(Note).filter(Note.content.ilike(f"%published:{slug}%")).all()
+    note = None
+    for n in notes:
+        if n.title.lower().replace(" ", "-").replace("/", "-")[:50] == slug:
+            note = n
+            break
+
     if not note:
-        raise HTTPException(status_code=404, detail="Note not found")
+        raise HTTPException(status_code=404, detail="Note not found or not published")
 
     safe_content = (note.content or '').replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
     description = (note.content or '')[:160]
@@ -1551,14 +1562,26 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Geist', system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem; background: #F7F7F5; color: #333; }
-        h1 { font-family: 'Instrument Serif', Georgia, serif; font-size: 2.5rem; margin-bottom: 1rem; }
-        h2 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 1.5rem; }
-        pre { background: #1e1e2d; color: #e2e8f0; padding: 1rem; border-radius: 0.75rem; overflow-x: auto; }
-        code { font-family: 'Geist Mono', monospace; }
-        blockquote { border-left: 3px solid #7C5CFF; padding-left: 1rem; color: #666; }
-        img { max-width: 100%; border-radius: 0.75rem; }
-        a { color: #7C5CFF; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Geist', system-ui, sans-serif; min-height: 100vh; padding: 3rem 2rem; background: #F7F7F5; color: #333; line-height: 1.7; }
+        article { max-width: 720px; margin: 0 auto; }
+        h1 { font-family: 'Instrument Serif', Georgia, serif; font-size: 3rem; margin-bottom: 1.5rem; line-height: 1.1; }
+        h2 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 2rem; margin-bottom: 0.75rem; }
+        h3 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.3rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+        p { margin-bottom: 1rem; font-size: 1.05rem; }
+        pre { background: #1e1e2d; color: #e2e8f0; padding: 1.25rem; border-radius: 0.75rem; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'Geist Mono', monospace; font-size: 0.9rem; }
+        p code { background: #e8e0d4; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.85rem; }
+        blockquote { border-left: 3px solid #7C5CFF; padding: 0.75rem 1rem; margin: 1rem 0; color: #666; background: #f0eef8; border-radius: 0 0.5rem 0.5rem 0; }
+        img { max-width: 100%; border-radius: 0.75rem; margin: 1rem 0; }
+        a { color: #7C5CFF; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ul, ol { margin: 1rem 0; padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+        hr { border: none; border-top: 1px solid #e8e0d4; margin: 2rem 0; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { padding: 0.75rem 1rem; border-bottom: 1px solid #e8e0d4; text-align: left; }
+        th { font-weight: 600; background: #f0eef8; }
     </style>
 </head>
 <body>
