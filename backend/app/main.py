@@ -1563,8 +1563,8 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Geist', system-ui, sans-serif; min-height: 100vh; padding: 3rem 2rem; background: #F7F7F5; color: #333; line-height: 1.7; }
-        article { max-width: 720px; margin: 0 auto; }
+        body { font-family: 'Geist', system-ui, sans-serif; min-height: 100vh; padding: 2rem; background: #F7F7F5; color: #333; line-height: 1.7; }
+        article { width: 100%; }
         h1 { font-family: 'Instrument Serif', Georgia, serif; font-size: 3rem; margin-bottom: 1.5rem; line-height: 1.1; }
         h2 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 2rem; margin-bottom: 0.75rem; }
         h3 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.3rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
