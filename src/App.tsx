@@ -9,7 +9,7 @@ import ShareModal from './components/ShareModal';
 import SharedNoteView from './components/SharedNoteView';
 import Login from './pages/Login';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles } from 'lucide-react';
+import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
 import { Note, Folder } from './types';
 import { api } from './api/client';
@@ -65,7 +65,7 @@ export default function App() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [unlockedFolders, setUnlockedFolders] = useState<Set<string>>(new Set());
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph'>('preview');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar'>('preview');
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -145,7 +145,7 @@ export default function App() {
   const handleNoteSelect = (id: string, mode: 'edit' | 'preview' = 'preview') => {
     const note = notes.find(n => n.id === id);
     if (!note) return;
-    
+
     if (note.folderId) {
       const folder = folders.find(f => f.id === note.folderId);
       if (folder?.isProtected && !unlockedFolders.has(folder.id)) {
@@ -154,11 +154,18 @@ export default function App() {
       }
     }
 
+    // Track recent notes
+    try {
+      const recent: string[] = JSON.parse(localStorage.getItem('recentNotes') || '[]');
+      const updated = [id, ...recent.filter(r => r !== id)].slice(0, 10);
+      localStorage.setItem('recentNotes', JSON.stringify(updated));
+    } catch (e) {}
+
     setActiveNoteId(id);
     setShowSettings(false);
     setViewMode(mode);
     setShowSearch(false);
-    setIsMobileMenuOpen(false); // Close mobile menu on select
+    setIsMobileMenuOpen(false);
   };
 
   const availableNotes = React.useMemo(() => {
@@ -343,6 +350,20 @@ export default function App() {
             >
               <Network size={16} />
             </button>
+            <button
+              onClick={() => setViewMode('stats')}
+              className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'stats' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}
+              title={t('app.stats')}
+            >
+              <BarChart3 size={16} />
+            </button>
+            <button
+              onClick={() => setViewMode('calendar')}
+              className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'calendar' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}
+              title={t('app.calendar')}
+            >
+              <Calendar size={16} />
+            </button>
           </div>
         )}
 
@@ -368,7 +389,7 @@ export default function App() {
               <Settings onClose={() => setShowSettings(false)} theme={theme} setTheme={handleSetTheme} />
             </motion.div>
           ) : viewMode === 'graph' ? (
-            <motion.div 
+            <motion.div
               key="graph"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -376,6 +397,80 @@ export default function App() {
               className="h-full w-full"
             >
               <GraphView notes={availableNotes} activeNoteId={activeNoteId} onNodeClick={handleNoteSelect} />
+            </motion.div>
+          ) : viewMode === 'stats' ? (
+            <motion.div
+              key="stats"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="h-full w-full p-8 scroll-elegant"
+            >
+              <h2 className="font-serif text-3xl font-bold text-foreground mb-6">{t('stats.title')}</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                {[
+                  { label: t('stats.totalNotes'), value: notes.length, icon: FileText },
+                  { label: t('stats.totalWords'), value: notes.reduce((acc, n) => acc + (n.content || '').split(/\s+/).filter(Boolean).length, 0), icon: Edit3 },
+                  { label: t('stats.totalLinks'), value: notes.reduce((acc, n) => acc + ((n.content || '').match(/\[\[/g) || []).length, 0), icon: Network },
+                  { label: t('stats.totalTags'), value: new Set((notes.flatMap(n => (n.content || '').match(/#\w+/g) || [])).map(t => t.toLowerCase())).size, icon: Hash },
+                ].map(({ label, value, icon: Icon }) => (
+                  <div key={label} className="bg-card rounded-xl border border-border/50 p-4 shadow-premium">
+                    <Icon size={20} className="text-primary mb-2" />
+                    <div className="text-2xl font-bold text-foreground">{value}</div>
+                    <div className="text-xs text-muted-foreground">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <h3 className="font-serif text-xl font-semibold text-foreground mb-3">{t('stats.topTags')}</h3>
+              <div className="flex flex-wrap gap-2">
+                {(() => {
+                  const tagCounts: Record<string, number> = {};
+                  notes.forEach(n => {
+                    const tags = (n.content || '').match(/#\w+/g) || [];
+                    tags.forEach(tag => { tagCounts[tag.toLowerCase()] = (tagCounts[tag.toLowerCase()] || 0) + 1; });
+                  });
+                  return Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([tag, count]) => (
+                    <span key={tag} className="px-3 py-1 rounded-full bg-accent text-accent-foreground text-sm">{tag} ({count})</span>
+                  ));
+                })()}
+              </div>
+            </motion.div>
+          ) : viewMode === 'calendar' ? (
+            <motion.div
+              key="calendar"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="h-full w-full p-8 scroll-elegant"
+            >
+              <h2 className="font-serif text-3xl font-bold text-foreground mb-6">{t('calendar.title')}</h2>
+              <div className="grid grid-cols-7 gap-2">
+                {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => (
+                  <div key={d} className="text-center text-xs font-medium text-muted-foreground py-2">{d}</div>
+                ))}
+                {(() => {
+                  const now = new Date();
+                  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
+                  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                  const cells = [];
+                  for (let i = 0; i < (firstDay === 0 ? 6 : firstDay - 1); i++) cells.push(null);
+                  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                  return cells.map((day, i) => {
+                    if (!day) return <div key={i} />;
+                    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const dayNotes = notes.filter(n => (n.created_at || '').startsWith(dateStr) || (n.updated_at || '').startsWith(dateStr));
+                    return (
+                      <div key={i} className={`rounded-lg border p-2 min-h-[80px] ${dayNotes.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'}`}>
+                        <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
+                        {dayNotes.slice(0, 2).map(n => (
+                          <div key={n.id} onClick={() => { handleNoteSelect(n.id); setViewMode('preview'); }} className="text-[10px] truncate text-foreground/80 cursor-pointer hover:text-primary">{n.title}</div>
+                        ))}
+                        {dayNotes.length > 2 && <div className="text-[10px] text-muted-foreground">+{dayNotes.length - 2}</div>}
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
             </motion.div>
           ) : activeNote ? (
             <motion.div 

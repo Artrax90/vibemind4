@@ -8,6 +8,79 @@ import remarkBreaks from 'remark-breaks';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useLanguage } from '../contexts/LanguageContext';
+import mermaid from 'mermaid';
+
+mermaid.initialize({ startOnLoad: false, theme: 'default' });
+
+const TAG_COLORS: Record<string, string> = {
+  work: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+  personal: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+  ideas: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  todo: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  done: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  important: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+  meeting: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300',
+  project: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300',
+};
+
+function getTagColor(tag: string): string {
+  const base = tag.replace(/^#/, '').split('/')[0].toLowerCase();
+  return TAG_COLORS[base] || 'bg-muted text-muted-foreground';
+}
+
+function MermaidDiagram({ code }: { code: string }) {
+  const ref = React.useRef<HTMLDivElement>(null);
+  const [svg, setSvg] = React.useState('');
+
+  React.useEffect(() => {
+    if (ref.current && code) {
+      const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
+      mermaid.render(id, code).then(({ svg }) => setSvg(svg)).catch(() => setSvg(''));
+    }
+  }, [code]);
+
+  return <div ref={ref} className="my-4 flex justify-center" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
+function renderContentWithTags(text: string): React.ReactNode[] {
+  const parts = text.split(/(#[\w/]+)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('#')) {
+      return <span key={i} className={`inline-block px-1.5 py-0.5 rounded-md text-xs font-medium ${getTagColor(part)}`}>{part}</span>;
+    }
+    return <span key={i} dangerouslySetInnerHTML={{ __html: renderContent(part) }} />;
+  });
+}
+
+function EmbedPreview({ href }: { href: string }) {
+  const [embedHtml, setEmbedHtml] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const url = href;
+    // YouTube
+    const ytMatch = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&]+)/);
+    if (ytMatch) {
+      setEmbedHtml(`<iframe width="100%" height="315" src="https://www.youtube.com/embed/${ytMatch[1]}" frameborder="0" allowfullscreen class="rounded-xl"></iframe>`);
+      return;
+    }
+    // Spotify
+    const spMatch = url.match(/open\.spotify\.com\/(track|playlist|album)\/([^?]+)/);
+    if (spMatch) {
+      setEmbedHtml(`<iframe src="https://open.spotify.com/embed/${spMatch[1]}/${spMatch[2]}" width="100%" height="152" frameborder="0" allowfullscreen class="rounded-xl"></iframe>`);
+      return;
+    }
+    // GitHub repo
+    const ghMatch = url.match(/github\.com\/([^/]+)\/([^/]+)/);
+    if (ghMatch) {
+      setEmbedHtml(`<div class="border border-border rounded-xl p-4 flex items-center gap-3"><div class="w-10 h-10 rounded-lg bg-muted flex items-center justify-center"><svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></div><div><div class="font-medium text-sm">${ghMatch[1]}/${ghMatch[2]}</div><div class="text-xs text-muted-foreground">GitHub Repository</div></div></div>`);
+      return;
+    }
+  }, [href]);
+
+  if (!embedHtml) return null;
+
+  return <div className="my-3" dangerouslySetInnerHTML={{ __html: embedHtml }} />;
+}
 
 type EditorProps = {
   note: Note;
@@ -455,17 +528,23 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
                   },
                   code({node, inline, className, children, ...props}: any) {
                     const match = /language-(\w+)/.exec(className || '')
-                    return !inline && match ? (
-                      <SyntaxHighlighter
-                        style={vscDarkPlus as any}
-                        language={match[1]}
-                        PreTag="div"
-                        className="rounded-xl border border-border/50 my-4"
-                        {...props}
-                      >
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
+                    if (!inline && match) {
+                      if (match[1] === 'mermaid') {
+                        return <MermaidDiagram code={String(children).replace(/\n$/, '')} />;
+                      }
+                      return (
+                        <SyntaxHighlighter
+                          style={vscDarkPlus as any}
+                          language={match[1]}
+                          PreTag="div"
+                          className="rounded-xl border border-border/50 my-4"
+                          {...props}
+                        >
+                          {String(children).replace(/\n$/, '')}
+                        </SyntaxHighlighter>
+                      );
+                    }
+                    return (
                       <code className="bg-muted text-foreground/90 px-1.5 py-0.5 rounded-lg text-sm font-mono" {...props}>
                         {children}
                       </code>
@@ -483,7 +562,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
                             if (child.trim() === '' && childrenArray.length === 1) {
                                 return <span key={i} className="inline-block min-h-[1.5em] w-full">&nbsp;</span>;
                             }
-                            return <span key={i} dangerouslySetInnerHTML={{ __html: renderContent(child) }} />;
+                            return <span key={i}>{renderContentWithTags(child)}</span>;
                           }
                           return <React.Fragment key={i}>{child}</React.Fragment>;
                         })}
@@ -500,13 +579,38 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
                     return <ul className="list-disc list-inside my-4 space-y-1.5 text-foreground/80">{children}</ul>;
                   },
                   li({children}) {
+                    const childrenArray = React.Children.toArray(children);
+                    const hasCheckbox = childrenArray.some(
+                      child => React.isValidElement(child) && child.type === 'input'
+                    );
+                    if (hasCheckbox) {
+                      let isChecked = false;
+                      return (
+                        <li className="flex items-center gap-2 text-foreground/80 list-none my-1">
+                          {childrenArray.map((child, i) => {
+                            if (React.isValidElement(child) && child.type === 'input') {
+                              isChecked = (child.props as any).checked;
+                              return (
+                                <span key={i} className={`inline-flex items-center justify-center w-4 h-4 rounded border ${isChecked ? 'bg-primary border-primary text-primary-foreground' : 'border-border bg-background'}`}>
+                                  {isChecked && <CheckCircle size={12} />}
+                                </span>
+                              );
+                            }
+                            if (typeof child === 'string') {
+                              return <span key={i} className={isChecked ? 'line-through text-muted-foreground' : ''} dangerouslySetInnerHTML={{ __html: renderContent(child) }} />;
+                            }
+                            return <React.Fragment key={i}>{child}</React.Fragment>;
+                          })}
+                        </li>
+                      );
+                    }
                     return (
                       <li className="text-foreground/80">
-                        {React.Children.map(children, child => {
+                        {childrenArray.map((child, i) => {
                           if (typeof child === 'string') {
-                            return <span dangerouslySetInnerHTML={{ __html: renderContent(child) }} />;
+                            return <span key={i} dangerouslySetInnerHTML={{ __html: renderContent(child) }} />;
                           }
-                          return child;
+                          return <React.Fragment key={i}>{child}</React.Fragment>;
                         })}
                       </li>
                     );
@@ -530,15 +634,20 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
                     return <td className="px-4 py-2.5 border-t border-border/30 text-sm">{children}</td>
                   },
                   a({node, children, ...props}: any) {
+                    const href = props.href || '';
+                    const isEmbeddable = /youtube\.com|youtu\.be|open\.spotify\.com|github\.com\/[^/]+\/[^/]+$/.test(href);
                     return (
-                      <a
-                        {...props}
-                        className="text-primary underline decoration-primary/30 hover:decoration-primary underline-offset-4 transition-all"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        {children}
-                      </a>
+                      <>
+                        <a
+                          {...props}
+                          className="text-primary underline decoration-primary/30 hover:decoration-primary underline-offset-4 transition-all"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          {children}
+                        </a>
+                        {isEmbeddable && <EmbedPreview href={href} />}
+                      </>
                     )
                   }
                 }}

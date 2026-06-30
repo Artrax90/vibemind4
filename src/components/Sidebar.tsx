@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck } from 'lucide-react';
+import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck, Clock, Hash, Image, CheckCircle, FileX } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Note, Folder as FolderType } from '../types';
 import CreateFolderModal from './modals/CreateFolderModal';
@@ -482,6 +482,61 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
             </div>
           ) : (
             <>
+              {/* Recent section */}
+              {(() => {
+                const recentIds: string[] = JSON.parse(localStorage.getItem('recentNotes') || '[]');
+                const recentNotes = recentIds
+                  .map(id => notes.find(n => n.id === id))
+                  .filter(Boolean)
+                  .slice(0, 5);
+                if (recentNotes.length === 0) return null;
+                return (
+                  <div className="mb-3">
+                    <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.recent')}</p>
+                    <div className="space-y-0.5">
+                      {recentNotes.map(note => note && (
+                        <div
+                          key={note.id}
+                          onClick={() => { onSelectNote(note.id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-200 ${activeNoteId === note.id ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
+                        >
+                          <FileText size={14} className={`shrink-0 ${activeNoteId === note.id ? 'text-sidebar-primary' : 'text-sidebar-foreground/55'}`} />
+                          <span className="text-sm truncate">{note.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Smart folders */}
+              <div className="mb-3">
+                <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.smartFolders')}</p>
+                <div className="space-y-0.5">
+                  {[
+                    { icon: Clock, label: t('smart.recentWeek'), filter: (n: Note) => { const d = new Date(n.updated_at || ''); const week = new Date(); week.setDate(week.getDate() - 7); return d > week; }},
+                    { icon: Hash, label: t('smart.withTags'), filter: (n: Note) => (n.content || '').includes('#') },
+                    { icon: Image, label: t('smart.withImages'), filter: (n: Note) => (n.content || '').includes('![') },
+                    { icon: CheckCircle, label: t('smart.withTasks'), filter: (n: Note) => (n.content || '').includes('- [ ]') || (n.content || '').includes('- [x]') },
+                    { icon: FileX, label: t('smart.noTags'), filter: (n: Note) => !(n.content || '').includes('#') && !n.folderId },
+                  ].map(({ icon: Icon, label, filter }) => {
+                    const count = notes.filter(filter).length;
+                    if (count === 0) return null;
+                    return (
+                      <div
+                        key={label}
+                        onClick={() => { document.dispatchEvent(new CustomEvent('smart-filter', { detail: { filter } })); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
+                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors duration-200"
+                      >
+                        <Icon size={14} className="shrink-0 text-sidebar-foreground/55" />
+                        <span className="text-sm truncate flex-1">{label}</span>
+                        <span className="text-[10px] text-sidebar-foreground/40">{count}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               {/* Favorites section */}
               {notes.filter(n => n.isPinned).length > 0 && (
                 <div className="mb-3">
