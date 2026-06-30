@@ -18,7 +18,7 @@ from jose import jwt
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from .models import Base, Config, User, Note, Folder, Share
+from .models import Base, Config, User, Note, Folder, Share, Reminder
 from . import bot as bot_module
 from .bot import restart_bot, test_bot_connection
 
@@ -1396,6 +1396,96 @@ async def summarize_content(req: dict, db: Session = Depends(get_db), current_us
     except Exception as e:
         logger.error(f"Summarization failed: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+# ==================== REMINDERS API ====================
+
+class ReminderCreate(BaseModel):
+    note_id: str
+    remind_at: str
+    repeat_type: Optional[str] = "none"
+    message: Optional[str] = None
+
+@app.post("/api/reminders")
+async def create_reminder(reminder: ReminderCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    new_reminder = Reminder(
+        id=str(uuid.uuid4()),
+        note_id=reminder.note_id,
+        user_id=current_user.id,
+        remind_at=reminder.remind_at,
+        repeat_type=reminder.repeat_type,
+        message=reminder.message,
+        is_sent=0,
+        created_at=datetime.now().isoformat()
+    )
+    db.add(new_reminder)
+    db.commit()
+    return {"id": new_reminder.id, "status": "created"}
+
+@app.get("/api/reminders")
+async def get_reminders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    reminders = db.query(Reminder).filter(Reminder.user_id == current_user.id).all()
+    return [{"id": r.id, "note_id": r.note_id, "remind_at": r.remind_at, "repeat_type": r.repeat_type, "message": r.message, "is_sent": r.is_sent, "created_at": r.created_at} for r in reminders]
+
+@app.delete("/api/reminders/{reminder_id}")
+async def delete_reminder(reminder_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    reminder = db.query(Reminder).filter(Reminder.id == reminder_id, Reminder.user_id == current_user.id).first()
+    if not reminder:
+        raise HTTPException(status_code=404, detail="Reminder not found")
+    db.delete(reminder)
+    db.commit()
+    return {"status": "deleted"}
+
+# ==================== PUBLISHING API ====================
+
+@app.post("/api/notes/{note_id}/publish")
+async def publish_note(note_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user.id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    slug = note.title.lower().replace(" ", "-").replace("/", "-")[:50]
+    return {
+        "slug": slug,
+        "url": f"/published/{slug}",
+        "title": note.title,
+        "content": note.content
+    }
+
+@app.get("/api/published/{slug}")
+async def get_published_note(slug: str, db: Session = Depends(get_db)):
+    note = db.query(Note).filter(Note.title.ilike(f"%{slug.replace('-', ' ')}%")).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+    
+    html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{note.title}</title>
+    <meta name="description" content="{note.content[:160] if note.content else ''}">
+    <style>
+        body {{ font-family: 'Geist', system-ui, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem; background: #F7F7F5; color: #333; }}
+        h1 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 2.5rem; margin-bottom: 1rem; }}
+        pre {{ background: #1e1e2d; color: #e2e8f0; padding: 1rem; border-radius: 0.75rem; overflow-x: auto; }}
+        code {{ font-family: 'Geist Mono', monospace; }}
+        blockquote {{ border-left: 3px solid #7C5CFF; padding-left: 1rem; color: #666; }}
+        img {{ max-width: 100%; border-radius: 0.75rem; }}
+    </style>
+</head>
+<body>
+    <article>
+        <h1>{note.title}</h1>
+        <div id="content"></div>
+    </article>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>
+        document.getElementById('content').innerHTML = marked.parse(`{note.content.replace('`', '\\`')}`);
+    </script>
+</body>
+</html>"""
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content=html)
 
 # Static files and SPA fallback
 STATIC_DIR = "/app/static"

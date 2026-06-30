@@ -500,5 +500,53 @@ export const api = {
       console.error('Summarization failed:', e);
       return { summary: 'Network error' };
     }
+  },
+
+  // Reminders
+  async getReminders() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/reminders`, { headers: getAuthHeaders() });
+      return await handleResponse(res, []);
+    } catch (e) {
+      return [];
+    }
+  },
+
+  async createReminder(data: { note_id: string; remind_at: string; repeat_type?: string; message?: string }) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/reminders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(data)
+      });
+      return await handleResponse(res, { id: null });
+    } catch (e) {
+      return { id: null };
+    }
+  },
+
+  async deleteReminder(id: string) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/reminders/${id}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      return await handleResponse(res, { status: 'error' });
+    } catch (e) {
+      return { status: 'error' };
+    }
+  },
+
+  // Publishing
+  async publishNote(noteId: string) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/notes/${noteId}/publish`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      return await handleResponse(res, { slug: null });
+    } catch (e) {
+      return { slug: null };
+    }
   }
 };

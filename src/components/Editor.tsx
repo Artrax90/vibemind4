@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from '../api/client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Bell, Globe } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -431,12 +431,44 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
           )}
           
           {onShare && note.permission === 'owner' && (
-            <button 
+            <button
               onClick={onShare}
               className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-all hover:scale-110 active:scale-95"
               title="Share"
             >
               <Share2 size={20} />
+            </button>
+          )}
+
+          <button
+            onClick={async () => {
+              const datetime = prompt(t('editor.reminderDateTime') || 'Дата и время (YYYY-MM-DD HH:MM):');
+              if (datetime) {
+                const { api } = await import('../api/client');
+                await api.createReminder({ note_id: note.id, remind_at: datetime });
+                alert(t('editor.reminderCreated') || 'Напоминание создано!');
+              }
+            }}
+            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-all hover:scale-110 active:scale-95"
+            title={t('editor.reminder') || 'Напоминание'}
+          >
+            <Bell size={20} />
+          </button>
+
+          {note.permission === 'owner' && (
+            <button
+              onClick={async () => {
+                const { api } = await import('../api/client');
+                const result = await api.publishNote(note.id);
+                if (result.slug) {
+                  const url = `${window.location.origin}/published/${result.slug}`;
+                  prompt(t('editor.publishUrl') || 'Ссылка для публикации:', url);
+                }
+              }}
+              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-all hover:scale-110 active:scale-95"
+              title={t('editor.publish') || 'Опубликовать'}
+            >
+              <Globe size={20} />
             </button>
           )}
         </div>

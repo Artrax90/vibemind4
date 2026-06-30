@@ -59,3 +59,14 @@ class Share(Base):
     permission = Column(String) # 'read' or 'write'
     is_public = Column(Integer, default=0)
 
+class Reminder(Base):
+    __tablename__ = "reminders"
+    id = Column(String, primary_key=True, index=True)
+    note_id = Column(String, index=True)
+    user_id = Column(Integer, index=True)
+    remind_at = Column(String, nullable=False) # ISO datetime
+    repeat_type = Column(String, nullable=True) # 'none', 'daily', 'weekly', 'monthly'
+    message = Column(Text, nullable=True)
+    is_sent = Column(Integer, default=0)
+    created_at = Column(String, nullable=True)
+
