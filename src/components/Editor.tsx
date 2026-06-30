@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from '../api/client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell } from 'lucide-react';
+import ReminderModal from './ReminderModal';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -104,6 +105,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   const [title, setTitle] = useState(note?.title || '');
   const [isSaving, setIsSaving] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -439,6 +441,23 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
               <Share2 size={20} />
             </button>
           )}
+
+          <button
+            onClick={() => setShowReminderModal(true)}
+            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-all hover:scale-110 active:scale-95"
+            title={t('editor.reminder') || 'Напоминание'}
+          >
+            <Bell size={20} />
+          </button>
+
+          <ReminderModal
+            isOpen={showReminderModal}
+            onClose={() => setShowReminderModal(false)}
+            onConfirm={async (data) => {
+              const { api } = await import('../api/client');
+              await api.createReminder({ note_id: note.id, ...data });
+            }}
+          />
 
           {note.permission === 'owner' && (
             <button
