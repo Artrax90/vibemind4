@@ -172,6 +172,87 @@ async def startup_event():
     finally:
         starting_up = False
 
+# ==================== REMINDER CHECKER ====================
+
+async def check_reminders():
+    """Background task to check and send due reminders via Telegram."""
+    while True:
+        try:
+            db = SessionLocal()
+            try:
+                now = datetime.now()
+                now_str = now.isoformat()
+
+                # Find reminders that are due and not sent
+                due_reminders = db.query(Reminder).filter(
+                    Reminder.is_sent == 0,
+                    Reminder.remind_at <= now_str
+                ).all()
+
+                for reminder in due_reminders:
+                    try:
+                        # Get the user's config for Telegram
+                        config = db.query(Config).filter(Config.user_id == reminder.user_id).first()
+                        if not config or not config.tg_token:
+                            continue
+
+                        # Get the note title
+                        note = db.query(Note).filter(Note.id == reminder.note_id).first()
+                        note_title = note.title if note else "Unknown note"
+
+                        # Send via Telegram using aiogram
+                        from aiogram import Bot
+                        bot = Bot(token=config.tg_token)
+                        admin_id = config.tg_admin_id
+                        if admin_id:
+                            message = f"🔔 Напоминание: {note_title}"
+                            if reminder.message:
+                                message += f"\n💬 {reminder.message}"
+                            message += f"\n⏰ {reminder.remind_at[:16].replace('T', ' ')}"
+                            await bot.send_message(chat_id=admin_id, text=message)
+
+                        # Mark as sent
+                        reminder.is_sent = 1
+                        db.commit()
+
+                        # Handle repeat
+                        if reminder.repeat_type and reminder.repeat_type != 'none':
+                            next_time = now
+                            if reminder.repeat_type == 'daily':
+                                next_time = now + timedelta(days=1)
+                            elif reminder.repeat_type == 'weekly':
+                                next_time = now + timedelta(weeks=1)
+                            elif reminder.repeat_type == 'monthly':
+                                next_time = now + timedelta(days=30)
+
+                            new_reminder = Reminder(
+                                id=str(uuid.uuid4()),
+                                note_id=reminder.note_id,
+                                user_id=reminder.user_id,
+                                remind_at=next_time.isoformat(),
+                                repeat_type=reminder.repeat_type,
+                                message=reminder.message,
+                                is_sent=0,
+                                created_at=now.isoformat()
+                            )
+                            db.add(new_reminder)
+                            db.commit()
+
+                    except Exception as e:
+                        logger.error(f"Failed to send reminder {reminder.id}: {e}")
+
+            finally:
+                db.close()
+        except Exception as e:
+            logger.error(f"Reminder checker error: {e}")
+
+        # Check every 30 seconds
+        await asyncio.sleep(30)
+
+@app.on_event("startup")
+async def start_reminder_checker():
+    asyncio.create_task(check_reminders())
+
 def get_db():
     db = SessionLocal()
     try:

@@ -6,6 +6,7 @@ import Chat from './components/Chat';
 import Settings from './components/Settings';
 import GraphView from './components/GraphView';
 import BentoGrid from './components/BentoGrid';
+import NotificationsPanel from './components/NotificationsPanel';
 import ShareModal from './components/ShareModal';
 import SharedNoteView from './components/SharedNoteView';
 import Login from './pages/Login';
@@ -407,6 +408,13 @@ export default function App() {
             >
               <LayoutGrid size={16} />
             </button>
+          </div>
+        )}
+
+        {/* Notifications */}
+        {!showSettings && (
+          <div className="absolute top-6 right-6 z-10">
+            <NotificationsPanel onNoteClick={handleNoteSelect} />
           </div>
         )}
 
