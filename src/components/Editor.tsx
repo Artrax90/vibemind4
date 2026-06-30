@@ -178,15 +178,17 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
                 p: ({children}) => <p className="mb-4 leading-relaxed text-foreground/80">{children}</p>,
                 blockquote: ({children}) => <blockquote className="border-l-4 border-primary/30 pl-4 italic text-muted-foreground my-4">{children}</blockquote>,
                 a: ({children, ...props}) => <a {...props} className="text-primary underline decoration-primary/30 hover:decoration-primary">{children}</a>,
-                code: ({children, className}) => {
-                  if (className) {
+                code: ({children, className}: any) => {
+                  if (className && !className.includes('inline')) {
+                    const text = Array.isArray(children) ? children.join('') : String(children || '');
                     return (
                       <pre className="bg-[#1e1e2d] text-[#e2e8f0] p-4 rounded-xl overflow-x-auto my-4 font-mono text-sm">
-                        <code>{children}</code>
+                        <code>{text}</code>
                       </pre>
                     );
                   }
-                  return <code className="bg-muted px-1.5 py-0.5 rounded-lg text-sm font-mono">{children}</code>;
+                  const text = Array.isArray(children) ? children.join('') : String(children || '');
+                  return <code className="bg-muted px-1.5 py-0.5 rounded-lg text-sm font-mono">{text}</code>;
                 },
                 ul: ({children}) => <ul className="list-disc list-inside my-4 space-y-1 text-foreground/80">{children}</ul>,
                 ol: ({children}) => <ol className="list-decimal list-inside my-4 space-y-1 text-foreground/80">{children}</ol>,
