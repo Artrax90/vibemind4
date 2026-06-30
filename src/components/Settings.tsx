@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Globe, Shield, User, Download, Upload, Cpu, Webhook, MessageSquare, Plus, Save, Trash2, CheckCircle, AlertCircle, Database, Edit2, Server, Lock, Key, Sun, Moon, Terminal, RefreshCw, Calendar } from 'lucide-react';
 import CreateUserModal from './modals/CreateUserModal';
 import AddDBModal from './modals/AddDBModal';
-import { api } from '../api/client';
+import { api, getAuthHeaders } from '../api/client';
 import { useLanguage } from '../contexts/LanguageContext';
 import { updateSettings, getBotStatus, getSettings } from '../api/settings';
 
@@ -10,6 +10,9 @@ function GoogleCalendarSection() {
   const { t } = useLanguage();
   const [connected, setConnected] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     api.getCalendarStatus().then(res => {
@@ -18,11 +21,31 @@ function GoogleCalendarSection() {
     });
   }, []);
 
+  const handleSaveCredentials = async () => {
+    if (!clientId || !clientSecret) return;
+    try {
+      const res = await fetch('/api/calendar/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
+      });
+      if (res.ok) {
+        setSaved(true);
+        setTimeout(() => setSaved(false), 2000);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   const handleConnect = async () => {
+    if (!clientId || !clientSecret) {
+      alert(t('settings.calendarEnterCredentials') || 'Сначала введите Client ID и Client Secret');
+      return;
+    }
     const res = await api.getCalendarAuthUrl();
     if (res.auth_url) {
       window.open(res.auth_url, '_blank', 'width=500,height=600');
-      // Poll for connection status
       const interval = setInterval(async () => {
         const status = await api.getCalendarStatus();
         if (status.connected) {
@@ -42,7 +65,7 @@ function GoogleCalendarSection() {
   if (loading) return <div className="text-sm text-muted-foreground">{t('settings.loading')}</div>;
 
   return (
-    <div className="bg-card p-4 rounded-xl border border-border/50">
+    <div className="bg-card p-4 rounded-xl border border-border/50 space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -65,6 +88,37 @@ function GoogleCalendarSection() {
           </button>
         )}
       </div>
+
+      {!connected && (
+        <div className="space-y-3 pt-2 border-t border-border/30">
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Client ID</label>
+            <input
+              type="text"
+              value={clientId}
+              onChange={(e) => setClientId(e.target.value)}
+              placeholder="your-client-id.apps.googleusercontent.com"
+              className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground mb-1 block">Client Secret</label>
+            <input
+              type="password"
+              value={clientSecret}
+              onChange={(e) => setClientSecret(e.target.value)}
+              placeholder="GOCSPX-..."
+              className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-lg text-sm text-foreground focus:outline-none focus:border-primary"
+            />
+          </div>
+          <button
+            onClick={handleSaveCredentials}
+            className="px-3 py-1.5 text-xs rounded-lg bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
+          >
+            {saved ? '✓' : t('settings.save')}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

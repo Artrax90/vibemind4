@@ -1600,8 +1600,6 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
 
 # ==================== GOOGLE CALENDAR API ====================
 
-GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
-GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3344/api/calendar/callback")
 GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar"
 
@@ -1611,15 +1609,32 @@ class CalendarEventCreate(BaseModel):
     start_datetime: str  # ISO format
     end_datetime: str    # ISO format
 
+class CalendarConfigUpdate(BaseModel):
+    client_id: str
+    client_secret: str
+
+@app.post("/api/calendar/config")
+async def update_calendar_config(config_data: CalendarConfigUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Save Google Calendar client credentials."""
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
+    if not config:
+        config = Config(user_id=current_user.id)
+        db.add(config)
+    config.google_calendar_client_id = config_data.client_id
+    config.google_calendar_client_secret = config_data.client_secret
+    db.commit()
+    return {"status": "saved"}
+
 @app.get("/api/calendar/auth")
-async def calendar_auth(current_user: User = Depends(get_current_user)):
+async def calendar_auth(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     """Generate Google OAuth2 URL for calendar access."""
-    if not GOOGLE_CLIENT_ID:
-        raise HTTPException(status_code=500, detail="Google Calendar not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.")
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
+    if not config or not config.google_calendar_client_id or not config.google_calendar_client_secret:
+        raise HTTPException(status_code=400, detail="Google Calendar credentials not configured. Add them in Settings.")
 
     auth_url = (
         f"https://accounts.google.com/o/oauth2/v2/auth?"
-        f"client_id={GOOGLE_CLIENT_ID}&"
+        f"client_id={config.google_calendar_client_id}&"
         f"redirect_uri={GOOGLE_REDIRECT_URI}&"
         f"response_type=code&"
         f"scope={GOOGLE_CALENDAR_SCOPES}&"
@@ -1635,14 +1650,20 @@ async def calendar_callback(code: str = None, state: str = None, db: Session = D
     if not code:
         raise HTTPException(status_code=400, detail="Authorization code not provided")
 
+    # Get client credentials from config
+    user_id = int(state) if state else None
+    config = db.query(Config).filter(Config.user_id == user_id).first() if user_id else None
+    if not config or not config.google_calendar_client_id:
+        raise HTTPException(status_code=400, detail="Google Calendar credentials not configured")
+
     # Exchange code for tokens
     async with httpx.AsyncClient() as client:
         token_response = await client.post(
             "https://oauth2.googleapis.com/token",
             data={
                 "code": code,
-                "client_id": GOOGLE_CLIENT_ID,
-                "client_secret": GOOGLE_CLIENT_SECRET,
+                "client_id": config.google_calendar_client_id,
+                "client_secret": config.google_calendar_client_secret,
                 "redirect_uri": GOOGLE_REDIRECT_URI,
                 "grant_type": "authorization_code"
             }
@@ -1656,13 +1677,10 @@ async def calendar_callback(code: str = None, state: str = None, db: Session = D
     refresh_token = token_data.get("refresh_token")
 
     # Store tokens in user config
-    user_id = int(state) if state else None
-    if user_id:
-        config = db.query(Config).filter(Config.user_id == user_id).first()
-        if config:
-            config.google_calendar_token = access_token
-            config.google_calendar_refresh = refresh_token
-            db.commit()
+    if config:
+        config.google_calendar_token = access_token
+        config.google_calendar_refresh = refresh_token
+        db.commit()
 
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content="""
@@ -1789,15 +1807,15 @@ async def disconnect_calendar(db: Session = Depends(get_db), current_user: User 
 
 async def refresh_google_token(config, db):
     """Refresh expired Google token."""
-    if not config.google_calendar_refresh:
+    if not config.google_calendar_refresh or not config.google_calendar_client_id:
         return False
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
                 "https://oauth2.googleapis.com/token",
                 data={
-                    "client_id": GOOGLE_CLIENT_ID,
-                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "client_id": config.google_calendar_client_id,
+                    "client_secret": config.google_calendar_client_secret,
                     "refresh_token": config.google_calendar_refresh,
                     "grant_type": "refresh_token"
                 }

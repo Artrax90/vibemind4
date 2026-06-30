@@ -4,7 +4,7 @@ const BASE_URL = ''; // Relative to current host
 const isLocalApp = !!(window as any).electronAPI || Capacitor.isNativePlatform();
 
 // Helper to get token
-const getAuthHeaders = () => {
+export const getAuthHeaders = () => {
   const token = localStorage.getItem('access_token');
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 };
