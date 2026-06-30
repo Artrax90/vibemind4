@@ -42,13 +42,19 @@ function MermaidDiagram({ code }: { code: string }) {
   return <div ref={ref} className="my-4 flex justify-center" dangerouslySetInnerHTML={{ __html: svg }} />;
 }
 
+function renderContentBase(text: string): string {
+  let parsed = text.replace(/\[\[(.*?)\]\]/g, '<span class="wikilink text-primary cursor-pointer hover:underline" data-title="$1">$1</span>');
+  parsed = parsed.replace(/(^|\s)#([^\s#]+)/g, '$1<span class="tag text-primary bg-primary/10 px-1.5 py-0.5 rounded text-sm cursor-pointer hover:bg-primary/20" data-tag="$2">#$2</span>');
+  return parsed;
+}
+
 function renderContentWithTags(text: string): React.ReactNode[] {
   const parts = text.split(/(#[\w/]+)/g);
   return parts.map((part, i) => {
     if (part.startsWith('#')) {
       return <span key={i} className={`inline-block px-1.5 py-0.5 rounded-md text-xs font-medium ${getTagColor(part)}`}>{part}</span>;
     }
-    return <span key={i} dangerouslySetInnerHTML={{ __html: renderContent(part) }} />;
+    return <span key={i} dangerouslySetInnerHTML={{ __html: renderContentBase(part) }} />;
   });
 }
 
@@ -142,13 +148,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   };
 
   // Custom renderer for tags and wikilinks
-  const renderContent = (text: string) => {
-    // Replace [[wikilinks]]
-    let parsed = text.replace(/\[\[(.*?)\]\]/g, '<span class="wikilink text-primary cursor-pointer hover:underline" data-title="$1">$1</span>');
-    // Replace #tags
-    parsed = parsed.replace(/(^|\s)#([^\s#]+)/g, '$1<span class="tag text-primary bg-primary/10 px-1.5 py-0.5 rounded text-sm cursor-pointer hover:bg-primary/20" data-tag="$2">#$2</span>');
-    return parsed;
-  };
+  const renderContent = renderContentBase;
 
   const handleContentClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
