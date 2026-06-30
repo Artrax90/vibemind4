@@ -179,16 +179,11 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
                 blockquote: ({children}) => <blockquote className="border-l-4 border-primary/30 pl-4 italic text-muted-foreground my-4">{children}</blockquote>,
                 a: ({children, ...props}) => <a {...props} className="text-primary underline decoration-primary/30 hover:decoration-primary">{children}</a>,
                 code: ({children, className}: any) => {
-                  if (className && !className.includes('inline')) {
-                    const text = Array.isArray(children) ? children.join('') : String(children || '');
-                    return (
-                      <pre className="bg-[#1e1e2d] text-[#e2e8f0] p-4 rounded-xl overflow-x-auto my-4 font-mono text-sm">
-                        <code>{text}</code>
-                      </pre>
-                    );
+                  const text = String(children || '');
+                  if (className) {
+                    return <pre className="bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto my-4 text-sm"><code>{text}</code></pre>;
                   }
-                  const text = Array.isArray(children) ? children.join('') : String(children || '');
-                  return <code className="bg-muted px-1.5 py-0.5 rounded-lg text-sm font-mono">{text}</code>;
+                  return <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{text}</code>;
                 },
                 ul: ({children}) => <ul className="list-disc list-inside my-4 space-y-1 text-foreground/80">{children}</ul>,
                 ol: ({children}) => <ol className="list-decimal list-inside my-4 space-y-1 text-foreground/80">{children}</ol>,
