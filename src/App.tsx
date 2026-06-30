@@ -6,12 +6,13 @@ import Chat from './components/Chat';
 import Settings from './components/Settings';
 import GraphView from './components/GraphView';
 import BentoGrid from './components/BentoGrid';
+import CanvasView from './components/CanvasView';
 import NotificationsPanel from './components/NotificationsPanel';
 import ShareModal from './components/ShareModal';
 import SharedNoteView from './components/SharedNoteView';
 import Login from './pages/Login';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid } from 'lucide-react';
+import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, PenTool } from 'lucide-react';
 import { useLanguage } from './contexts/LanguageContext';
 import { Note, Folder } from './types';
 import { api } from './api/client';
@@ -67,7 +68,7 @@ export default function App() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [unlockedFolders, setUnlockedFolders] = useState<Set<string>>(new Set());
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento'>('preview');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento' | 'canvas'>('preview');
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -349,7 +350,6 @@ export default function App() {
           onNotesChange={setNotes}
           onFoldersChange={setFolders}
           onAddNote={addNote}
-          onAddBoard={(note) => { addNote(note); handleNoteSelect(note.id, 'edit'); }}
           onAddFolder={addFolder}
           onDeleteNote={deleteNote}
           onDeleteFolder={deleteFolder}
@@ -408,6 +408,13 @@ export default function App() {
               title={t('app.bento')}
             >
               <LayoutGrid size={16} />
+            </button>
+            <button
+              onClick={() => setViewMode('canvas')}
+              className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'canvas' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}
+              title={t('app.canvas')}
+            >
+              <PenTool size={16} />
             </button>
           </div>
         )}
@@ -486,6 +493,21 @@ export default function App() {
                   ));
                 })()}
               </div>
+            </motion.div>
+          ) : viewMode === 'canvas' ? (
+            <motion.div
+              key="canvas"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-full w-full"
+            >
+              <CanvasView
+                notes={availableNotes}
+                activeNoteId={activeNoteId}
+                onNoteClick={handleNoteSelect}
+                onAddNote={(note) => { addNote(note); handleNoteSelect(note.id, 'edit'); }}
+              />
             </motion.div>
           ) : viewMode === 'bento' ? (
             <motion.div
