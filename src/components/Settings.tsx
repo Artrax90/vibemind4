@@ -1,10 +1,73 @@
 import React, { useState, useEffect } from 'react';
-import { X, Globe, Shield, User, Download, Upload, Cpu, Webhook, MessageSquare, Plus, Save, Trash2, CheckCircle, AlertCircle, Database, Edit2, Server, Lock, Key, Sun, Moon, Terminal, RefreshCw } from 'lucide-react';
+import { X, Globe, Shield, User, Download, Upload, Cpu, Webhook, MessageSquare, Plus, Save, Trash2, CheckCircle, AlertCircle, Database, Edit2, Server, Lock, Key, Sun, Moon, Terminal, RefreshCw, Calendar } from 'lucide-react';
 import CreateUserModal from './modals/CreateUserModal';
 import AddDBModal from './modals/AddDBModal';
 import { api } from '../api/client';
 import { useLanguage } from '../contexts/LanguageContext';
 import { updateSettings, getBotStatus, getSettings } from '../api/settings';
+
+function GoogleCalendarSection() {
+  const { t } = useLanguage();
+  const [connected, setConnected] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getCalendarStatus().then(res => {
+      setConnected(res.connected);
+      setLoading(false);
+    });
+  }, []);
+
+  const handleConnect = async () => {
+    const res = await api.getCalendarAuthUrl();
+    if (res.auth_url) {
+      window.open(res.auth_url, '_blank', 'width=500,height=600');
+      // Poll for connection status
+      const interval = setInterval(async () => {
+        const status = await api.getCalendarStatus();
+        if (status.connected) {
+          setConnected(true);
+          clearInterval(interval);
+        }
+      }, 2000);
+      setTimeout(() => clearInterval(interval), 30000);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    await api.disconnectCalendar();
+    setConnected(false);
+  };
+
+  if (loading) return <div className="text-sm text-muted-foreground">{t('settings.loading')}</div>;
+
+  return (
+    <div className="bg-card p-4 rounded-xl border border-border/50">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Calendar size={18} className="text-primary" />
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Google Calendar</p>
+            <p className="text-xs text-muted-foreground">
+              {connected ? t('settings.connected') : t('settings.notConfigured')}
+            </p>
+          </div>
+        </div>
+        {connected ? (
+          <button onClick={handleDisconnect} className="px-3 py-1.5 text-xs rounded-lg bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors">
+            {t('settings.disconnect')}
+          </button>
+        ) : (
+          <button onClick={handleConnect} className="px-3 py-1.5 text-xs rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors">
+            {t('settings.connect')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 type SettingsProps = {
   onClose: () => void;
@@ -473,6 +536,11 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       <Moon size={16} className="mr-2" /> {t('settings.dark')}
                     </button>
                   </div>
+                </section>
+
+                <section className="space-y-4">
+                  <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.googleCalendar')}</h3>
+                  <GoogleCalendarSection />
                 </section>
 
                 <section className="space-y-4">

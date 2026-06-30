@@ -537,6 +537,64 @@ export const api = {
     }
   },
 
+  // Google Calendar
+  async getCalendarStatus() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/calendar/status`, { headers: getAuthHeaders() });
+      return await handleResponse(res, { connected: false });
+    } catch (e) {
+      return { connected: false };
+    }
+  },
+
+  async getCalendarAuthUrl() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/calendar/auth`, { headers: getAuthHeaders() });
+      return await handleResponse(res, { auth_url: null });
+    } catch (e) {
+      return { auth_url: null };
+    }
+  },
+
+  async getCalendarEvents(timeMin?: string, timeMax?: string) {
+    try {
+      let url = `${BASE_URL}/api/calendar/events`;
+      const params = new URLSearchParams();
+      if (timeMin) params.set('time_min', timeMin);
+      if (timeMax) params.set('time_max', timeMax);
+      if (params.toString()) url += '?' + params.toString();
+      const res = await fetch(url, { headers: getAuthHeaders() });
+      return await handleResponse(res, []);
+    } catch (e) {
+      return [];
+    }
+  },
+
+  async createCalendarEvent(data: { summary: string; description?: string; start_datetime: string; end_datetime: string }) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/calendar/events`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(data)
+      });
+      return await handleResponse(res, { id: null });
+    } catch (e) {
+      return { id: null };
+    }
+  },
+
+  async disconnectCalendar() {
+    try {
+      const res = await fetch(`${BASE_URL}/api/calendar/disconnect`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      return await handleResponse(res, { status: 'error' });
+    } catch (e) {
+      return { status: 'error' };
+    }
+  },
+
   // Publishing
   async publishNote(noteId: string) {
     try {

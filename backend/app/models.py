@@ -18,6 +18,8 @@ class Config(Base):
     model_name = Column(String, nullable=True)
     proxy_config = Column(JSON, nullable=True) # {protocol, host, port, username, password}
     external_dbs = Column(JSON, nullable=True) # List of {type, name, connection_string}
+    google_calendar_token = Column(String, nullable=True)
+    google_calendar_refresh = Column(String, nullable=True)
 
 class User(Base):
     __tablename__ = "users"

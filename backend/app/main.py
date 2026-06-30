@@ -1598,6 +1598,219 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     from fastapi.responses import HTMLResponse
     return HTMLResponse(content=html)
 
+# ==================== GOOGLE CALENDAR API ====================
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3344/api/calendar/callback")
+GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar"
+
+class CalendarEventCreate(BaseModel):
+    summary: str
+    description: Optional[str] = None
+    start_datetime: str  # ISO format
+    end_datetime: str    # ISO format
+
+@app.get("/api/calendar/auth")
+async def calendar_auth(current_user: User = Depends(get_current_user)):
+    """Generate Google OAuth2 URL for calendar access."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(status_code=500, detail="Google Calendar not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET environment variables.")
+
+    auth_url = (
+        f"https://accounts.google.com/o/oauth2/v2/auth?"
+        f"client_id={GOOGLE_CLIENT_ID}&"
+        f"redirect_uri={GOOGLE_REDIRECT_URI}&"
+        f"response_type=code&"
+        f"scope={GOOGLE_CALENDAR_SCOPES}&"
+        f"access_type=offline&"
+        f"prompt=consent&"
+        f"state={current_user.id}"
+    )
+    return {"auth_url": auth_url}
+
+@app.get("/api/calendar/callback")
+async def calendar_callback(code: str = None, state: str = None, db: Session = Depends(get_db)):
+    """Handle Google OAuth2 callback."""
+    if not code:
+        raise HTTPException(status_code=400, detail="Authorization code not provided")
+
+    # Exchange code for tokens
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": GOOGLE_REDIRECT_URI,
+                "grant_type": "authorization_code"
+            }
+        )
+
+    if token_response.status_code != 200:
+        raise HTTPException(status_code=400, detail="Failed to exchange authorization code")
+
+    token_data = token_response.json()
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+
+    # Store tokens in user config
+    user_id = int(state) if state else None
+    if user_id:
+        config = db.query(Config).filter(Config.user_id == user_id).first()
+        if config:
+            config.google_calendar_token = access_token
+            config.google_calendar_refresh = refresh_token
+            db.commit()
+
+    from fastapi.responses import HTMLResponse
+    return HTMLResponse(content="""
+    <html><body style="font-family:system-ui;text-align:center;padding:50px">
+    <h2>✅ Google Calendar подключен!</h2>
+    <p>Можете закрыть это окно и вернуться в приложение.</p>
+    <script>setTimeout(() => window.close(), 2000);</script>
+    </body></html>
+    """)
+
+@app.get("/api/calendar/status")
+async def calendar_status(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Check if Google Calendar is connected."""
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
+    connected = bool(config and config.google_calendar_token)
+    return {"connected": connected}
+
+@app.get("/api/calendar/events")
+async def get_calendar_events(
+    time_min: str = None,
+    time_max: str = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get events from Google Calendar."""
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
+    if not config or not config.google_calendar_token:
+        raise HTTPException(status_code=400, detail="Google Calendar not connected")
+
+    access_token = config.google_calendar_token
+
+    # Build query params
+    params = {"maxResults": 100, "singleEvents": True, "orderBy": "startTime"}
+    if time_min:
+        params["timeMin"] = time_min
+    if time_max:
+        params["timeMax"] = time_max
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            headers={"Authorization": f"Bearer {access_token}"},
+            params=params
+        )
+
+    if response.status_code == 401:
+        # Token expired, try refresh
+        if config.google_calendar_refresh:
+            refreshed = await refresh_google_token(config, db)
+            if refreshed:
+                return await get_calendar_events(time_min, time_max, db, current_user)
+        raise HTTPException(status_code=401, detail="Google Calendar token expired")
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail="Failed to fetch calendar events")
+
+    events = response.json().get("items", [])
+    return [{"id": e["id"], "summary": e.get("summary", ""), "start": e.get("start", {}).get("dateTime", e.get("start", {}).get("date", "")), "end": e.get("end", {}).get("dateTime", e.get("end", {}).get("date", "")), "description": e.get("description", "")} for e in events]
+
+@app.post("/api/calendar/events")
+async def create_calendar_event(event: CalendarEventCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Create an event in Google Calendar."""
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
+    if not config or not config.google_calendar_token:
+        raise HTTPException(status_code=400, detail="Google Calendar not connected")
+
+    access_token = config.google_calendar_token
+
+    event_body = {
+        "summary": event.summary,
+        "description": event.description or "",
+        "start": {"dateTime": event.start_datetime, "timeZone": "Europe/Moscow"},
+        "end": {"dateTime": event.end_datetime, "timeZone": "Europe/Moscow"}
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            "https://www.googleapis.com/calendar/v3/calendars/primary/events",
+            headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            json=event_body
+        )
+
+    if response.status_code == 401:
+        if config.google_calendar_refresh:
+            refreshed = await refresh_google_token(config, db)
+            if refreshed:
+                return await create_calendar_event(event, db, current_user)
+        raise HTTPException(status_code=401, detail="Google Calendar token expired")
+
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail="Failed to create calendar event")
+
+    created = response.json()
+    return {"id": created["id"], "summary": created.get("summary", ""), "htmlLink": created.get("htmlLink", "")}
+
+@app.delete("/api/calendar/events/{event_id}")
+async def delete_calendar_event(event_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Delete an event from Google Calendar."""
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
+    if not config or not config.google_calendar_token:
+        raise HTTPException(status_code=400, detail="Google Calendar not connected")
+
+    access_token = config.google_calendar_token
+
+    async with httpx.AsyncClient() as client:
+        response = await client.delete(
+            f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{event_id}",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+    if response.status_code == 204:
+        return {"status": "deleted"}
+    raise HTTPException(status_code=response.status_code, detail="Failed to delete event")
+
+@app.post("/api/calendar/disconnect")
+async def disconnect_calendar(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    """Disconnect Google Calendar."""
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
+    if config:
+        config.google_calendar_token = None
+        config.google_calendar_refresh = None
+        db.commit()
+    return {"status": "disconnected"}
+
+async def refresh_google_token(config, db):
+    """Refresh expired Google token."""
+    if not config.google_calendar_refresh:
+        return False
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": GOOGLE_CLIENT_ID,
+                    "client_secret": GOOGLE_CLIENT_SECRET,
+                    "refresh_token": config.google_calendar_refresh,
+                    "grant_type": "refresh_token"
+                }
+            )
+        if response.status_code == 200:
+            token_data = response.json()
+            config.google_calendar_token = token_data.get("access_token")
+            db.commit()
+            return True
+    except Exception as e:
+        logger.error(f"Token refresh failed: {e}")
+    return False
+
 # Static files and SPA fallback
 STATIC_DIR = "/app/static"
 if not os.path.exists(STATIC_DIR):
