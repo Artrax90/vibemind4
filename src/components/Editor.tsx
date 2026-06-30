@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from '../api/client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell, CalendarPlus } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell } from 'lucide-react';
 import ReminderModal from './ReminderModal';
 import PublishModal from './PublishModal';
 import ReactMarkdown from 'react-markdown';
@@ -429,30 +429,6 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
             title={t('editor.reminder') || 'Напоминание'}
           >
             <Bell size={18} />
-          </button>
-
-          <button
-            onClick={async () => {
-              const { api } = await import('../api/client');
-              const status = await api.getCalendarStatus();
-              if (!status.connected) {
-                alert(t('editor.calendarNotConnected') || 'Подключите Google Calendar в настройках');
-                return;
-              }
-              const now = new Date();
-              const later = new Date(now.getTime() + 60 * 60 * 1000);
-              await api.createCalendarEvent({
-                summary: note.title,
-                description: (note.content || '').substring(0, 500),
-                start_datetime: now.toISOString(),
-                end_datetime: later.toISOString()
-              });
-              alert(t('editor.calendarEventCreated') || 'Событие создано в Google Calendar!');
-            }}
-            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
-            title={t('editor.addToCalendar') || 'Добавить в календарь'}
-          >
-            <CalendarPlus size={18} />
           </button>
 
           {note.permission === 'owner' && (
