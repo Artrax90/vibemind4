@@ -7,14 +7,13 @@ type CanvasViewProps = {
   notes: Note[];
   activeNoteId: string | null;
   onNoteClick: (noteId: string) => void;
-  onAddNote: () => void;
+  onAddNote: (note: Note) => void;
 };
 
 type CardPosition = { id: string; x: number; y: number };
 type Arrow = { id: string; from: string; to: string };
-type CanvasShape = { id: string; type: 'rect' | 'text'; x: number; y: number; width: number; height: number; text?: string; color?: string };
 
-type Tool = 'select' | 'connect' | 'text' | 'shape';
+type Tool = 'select' | 'connect' | 'add';
 
 export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote }: CanvasViewProps) {
   const { t } = useLanguage();
@@ -25,7 +24,6 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
   const [arrows, setArrows] = useState<Arrow[]>(() => {
     try { return JSON.parse(localStorage.getItem('canvas_arrows') || '[]'); } catch { return []; }
   });
-  const [shapes, setShapes] = useState<CanvasShape[]>([]);
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [tool, setTool] = useState<Tool>('select');
@@ -37,37 +35,34 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
   const [presenting, setPresenting] = useState(false);
   const [presentIndex, setPresentIndex] = useState(0);
 
-  // Save positions to localStorage
-  useEffect(() => {
-    localStorage.setItem('canvas_positions', JSON.stringify(positions));
-  }, [positions]);
+  // Save to localStorage
+  useEffect(() => { localStorage.setItem('canvas_positions', JSON.stringify(positions)); }, [positions]);
+  useEffect(() => { localStorage.setItem('canvas_arrows', JSON.stringify(arrows)); }, [arrows]);
 
-  useEffect(() => {
-    localStorage.setItem('canvas_arrows', JSON.stringify(arrows));
-  }, [arrows]);
-
-  // Initialize positions for notes that don't have one
+  // Initialize positions
   useEffect(() => {
     const existing = new Set(positions.map(p => p.id));
     const newPositions = notes
       .filter(n => !existing.has(n.id))
-      .map((n, i) => ({
-        id: n.id,
-        x: 100 + (i % 4) * 280,
-        y: 100 + Math.floor(i / 4) * 200
-      }));
-    if (newPositions.length > 0) {
-      setPositions(prev => [...prev, ...newPositions]);
-    }
+      .map((n, i) => ({ id: n.id, x: 100 + (i % 4) * 280, y: 100 + Math.floor(i / 4) * 200 }));
+    if (newPositions.length > 0) setPositions(prev => [...prev, ...newPositions]);
   }, [notes]);
 
+  // Pan: left click on empty space
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 1 || (e.button === 0 && e.altKey)) {
-      // Middle click or Alt+click = pan
+    if (e.target === containerRef.current || (e.target as HTMLElement).classList.contains('canvas-bg')) {
+      if (tool === 'add') {
+        const x = (e.clientX - pan.x) / zoom;
+        const y = (e.clientY - pan.y) / zoom;
+        const newNote: Note = { id: `n${Date.now()}`, title: 'New Note', content: '', permission: 'owner' } as Note;
+        setPositions(prev => [...prev, { id: newNote.id, x, y }]);
+        onAddNote(newNote);
+        return;
+      }
       setIsPanning(true);
       setPanStart({ x: e.clientX - pan.x, y: e.clientY - pan.y });
     }
-  }, [pan]);
+  }, [pan, zoom, tool, onAddNote]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
     if (isPanning) {
@@ -103,15 +98,14 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
       }
       return;
     }
-    if (tool === 'select') {
-      const pos = positions.find(p => p.id === noteId);
-      if (pos) {
-        setDragging(noteId);
-        setDragOffset({
-          x: (e.clientX - pan.x) / zoom - pos.x,
-          y: (e.clientY - pan.y) / zoom - pos.y
-        });
-      }
+    // Select + drag
+    const pos = positions.find(p => p.id === noteId);
+    if (pos) {
+      setDragging(noteId);
+      setDragOffset({
+        x: (e.clientX - pan.x) / zoom - pos.x,
+        y: (e.clientY - pan.y) / zoom - pos.y
+      });
     }
   }, [tool, connectFrom, positions, pan, zoom]);
 
@@ -121,7 +115,7 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
 
   const getCardPosition = (id: string) => positions.find(p => p.id === id) || { x: 0, y: 0 };
 
-  // Presentation mode
+  // Presentation
   const presentableNotes = notes.filter(n => n.id);
   const handlePresent = () => {
     setPresenting(true);
@@ -132,63 +126,26 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
     }
   };
 
-  const handlePresentNext = () => {
-    if (presentIndex < presentableNotes.length - 1) {
-      const next = presentIndex + 1;
-      setPresentIndex(next);
-      const pos = getCardPosition(presentableNotes[next].id);
-      setPan({ x: window.innerWidth / 2 - pos.x * zoom, y: window.innerHeight / 2 - pos.y * zoom });
-    }
-  };
-
-  const handlePresentPrev = () => {
-    if (presentIndex > 0) {
-      const prev = presentIndex - 1;
-      setPresentIndex(prev);
-      const pos = getCardPosition(presentableNotes[prev].id);
-      setPan({ x: window.innerWidth / 2 - pos.x * zoom, y: window.innerHeight / 2 - pos.y * zoom });
-    }
-  };
-
   return (
     <div
       ref={containerRef}
-      className="w-full h-full bg-background overflow-hidden cursor-grab active:cursor-grabbing relative"
+      className={`w-full h-full bg-background overflow-hidden relative ${tool === 'add' ? 'cursor-crosshair' : 'cursor-grab'}`}
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onWheel={handleWheel}
     >
       {/* Toolbar */}
-      <div className="absolute top-4 left-4 z-10 flex flex-col gap-2">
+      <div className="absolute top-4 left-4 z-20 flex flex-col gap-2">
         <div className="flex items-center gap-1 rounded-full glass-strong p-1 shadow-premium ring-1 ring-border/50">
-          <button
-            onClick={() => setTool('select')}
-            className={`p-2 rounded-full transition-colors ${tool === 'select' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
-            title="Select"
-          >
+          <button onClick={() => setTool('select')} className={`p-2 rounded-full transition-colors ${tool === 'select' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title="Select & Drag">
             <MousePointer2 size={14} />
           </button>
-          <button
-            onClick={() => setTool('connect')}
-            className={`p-2 rounded-full transition-colors ${tool === 'connect' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
-            title="Connect"
-          >
+          <button onClick={() => setTool('connect')} className={`p-2 rounded-full transition-colors ${tool === 'connect' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title="Connect">
             <ArrowRight size={14} />
           </button>
-          <button
-            onClick={() => setTool('text')}
-            className={`p-2 rounded-full transition-colors ${tool === 'text' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
-            title="Text"
-          >
-            <Type size={14} />
-          </button>
-          <button
-            onClick={() => setTool('shape')}
-            className={`p-2 rounded-full transition-colors ${tool === 'shape' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`}
-            title="Shape"
-          >
-            <Square size={14} />
+          <button onClick={() => setTool('add')} className={`p-2 rounded-full transition-colors ${tool === 'add' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title="Add Note">
+            <Plus size={14} />
           </button>
         </div>
 
@@ -211,33 +168,52 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
         >
           <Play size={14} />
         </button>
-
-        <button
-          onClick={onAddNote}
-          className="p-2 rounded-full bg-primary text-primary-foreground shadow-premium ring-1 ring-border/50 transition-colors hover:shadow-premium-lg"
-          title="New Note"
-        >
-          <Plus size={14} />
-        </button>
       </div>
 
-      {/* Present mode controls */}
+      {/* Present controls */}
       {presenting && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 glass-strong rounded-full px-4 py-2 shadow-premium ring-1 ring-border/50">
-          <button onClick={handlePresentPrev} disabled={presentIndex === 0} className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-30">←</button>
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 glass-strong rounded-full px-4 py-2 shadow-premium ring-1 ring-border/50">
+          <button onClick={() => { if (presentIndex > 0) { setPresentIndex(p => p - 1); const pos = getCardPosition(presentableNotes[presentIndex - 1].id); setPan({ x: window.innerWidth / 2 - pos.x * zoom, y: window.innerHeight / 2 - pos.y * zoom }); } }} className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={presentIndex === 0}>←</button>
           <span className="text-sm text-foreground">{presentIndex + 1} / {presentableNotes.length}</span>
-          <button onClick={handlePresentNext} disabled={presentIndex >= presentableNotes.length - 1} className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-30">→</button>
+          <button onClick={() => { if (presentIndex < presentableNotes.length - 1) { setPresentIndex(p => p + 1); const pos = getCardPosition(presentableNotes[presentIndex + 1].id); setPan({ x: window.innerWidth / 2 - pos.x * zoom, y: window.innerHeight / 2 - pos.y * zoom }); } }} className="text-sm text-muted-foreground hover:text-foreground disabled:opacity-30" disabled={presentIndex >= presentableNotes.length - 1}>→</button>
           <button onClick={() => setPresenting(false)} className="text-sm text-muted-foreground hover:text-foreground ml-2">✕</button>
         </div>
       )}
 
-      {/* Canvas */}
+      {/* Canvas content */}
       <div
-        className="absolute inset-0"
-        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0' }}
+        className="absolute"
+        style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`, transformOrigin: '0 0', width: '10000px', height: '10000px' }}
       >
-        {/* Arrows */}
-        <svg className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%', overflow: 'visible', position: 'absolute', top: 0, left: 0 }}>
+        {/* Cards */}
+        {notes.map(note => {
+          const pos = getCardPosition(note.id);
+          return (
+            <div
+              key={note.id}
+              className={`absolute w-[220px] bg-card border rounded-2xl shadow-premium cursor-pointer select-none transition-shadow hover:shadow-premium-lg z-10 ${activeNoteId === note.id ? 'border-primary ring-2 ring-primary/30' : 'border-border/50'}`}
+              style={{ left: pos.x, top: pos.y }}
+              onMouseDown={(e) => handleCardMouseDown(e, note.id)}
+              onDoubleClick={() => handleDoubleClick(note.id)}
+            >
+              <div className="p-4">
+                <p className="text-sm font-semibold text-foreground truncate font-serif">{note.title}</p>
+                <p className="text-xs text-muted-foreground mt-1.5 line-clamp-2 leading-relaxed">
+                  {(note.content || '').replace(/[#*\[\]]/g, '').substring(0, 100)}
+                </p>
+              </div>
+              <div className="px-4 pb-3 flex items-center justify-between">
+                <span className="text-[10px] text-muted-foreground/50">
+                  {new Date(note.updated_at || '').toLocaleDateString('ru-RU')}
+                </span>
+                {note.isPinned && <span className="text-yellow-500 text-xs">★</span>}
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Arrows - rendered AFTER cards for z-index */}
+        <svg className="absolute top-0 left-0 pointer-events-none" style={{ width: '100%', height: '100%', overflow: 'visible' }}>
           <defs>
             <marker id="arrowhead" markerWidth="12" markerHeight="8" refX="11" refY="4" orient="auto" markerUnits="userSpaceOnUse">
               <path d="M 0 0 L 12 4 L 0 8 L 3 4 Z" fill="#6366f1" />
@@ -246,13 +222,12 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
           {arrows.map(arrow => {
             const from = getCardPosition(arrow.from);
             const to = getCardPosition(arrow.to);
-            const fromX = from.x + 100;
-            const fromY = from.y + 40;
-            const toX = to.x + 100;
-            const toY = to.y + 40;
-            // Calculate midpoint for curved arrow
+            const fromX = from.x + 110;
+            const fromY = from.y + 50;
+            const toX = to.x + 110;
+            const toY = to.y + 50;
             const midX = (fromX + toX) / 2;
-            const midY = (fromY + toY) / 2 - 30;
+            const midY = (fromY + toY) / 2 - 40;
             return (
               <g key={arrow.id}>
                 <path
@@ -266,33 +241,6 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
             );
           })}
         </svg>
-
-        {/* Cards */}
-        {notes.map(note => {
-          const pos = getCardPosition(note.id);
-          return (
-            <div
-              key={note.id}
-              className={`absolute w-[200px] bg-card border rounded-xl shadow-premium cursor-pointer select-none transition-shadow hover:shadow-premium-lg ${activeNoteId === note.id ? 'border-primary ring-2 ring-primary/30' : 'border-border/50'}`}
-              style={{ left: pos.x, top: pos.y }}
-              onMouseDown={(e) => handleCardMouseDown(e, note.id)}
-              onDoubleClick={() => handleDoubleClick(note.id)}
-            >
-              <div className="p-3">
-                <p className="text-sm font-medium text-foreground truncate">{note.title}</p>
-                <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-                  {(note.content || '').replace(/[#*\[\]]/g, '').substring(0, 80)}
-                </p>
-              </div>
-              <div className="px-3 pb-2 flex items-center justify-between">
-                <span className="text-[10px] text-muted-foreground/50">
-                  {new Date(note.updated_at || '').toLocaleDateString('ru-RU')}
-                </span>
-                {note.isPinned && <span className="text-yellow-500 text-xs">★</span>}
-              </div>
-            </div>
-          );
-        })}
       </div>
     </div>
   );

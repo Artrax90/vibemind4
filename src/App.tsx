@@ -506,7 +506,7 @@ export default function App() {
                 notes={availableNotes}
                 activeNoteId={activeNoteId}
                 onNoteClick={handleNoteSelect}
-                onAddNote={() => { addNote({ id: `n${Date.now()}`, title: t('common.newNote'), content: '', permission: 'owner' } as Note); setViewMode('edit'); }}
+                onAddNote={(note) => { addNote(note); handleNoteSelect(note.id, 'edit'); }}
               />
             </motion.div>
           ) : viewMode === 'bento' ? (
