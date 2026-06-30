@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
+import { Bold, Italic, Link, Image, List, ListOrdered, Code, Table, Hash } from 'lucide-react';
 
 type EditorProps = {
   note: Note;
@@ -19,6 +20,7 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
   const { t } = useLanguage();
   const [content, setContent] = useState(note?.content || '');
   const [title, setTitle] = useState(note?.title || '');
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setContent(note?.content || '');
@@ -33,8 +35,25 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
     return () => clearTimeout(timer);
   }, [content, title]);
 
+  const insertMarkdown = (prefix: string, suffix: string = '') => {
+    if (!textareaRef.current) return;
+    const start = textareaRef.current.selectionStart;
+    const end = textareaRef.current.selectionEnd;
+    const selected = content.substring(start, end);
+    const newContent = content.substring(0, start) + prefix + selected + suffix + content.substring(end);
+    setContent(newContent);
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const pos = start + prefix.length + selected.length + suffix.length;
+        textareaRef.current.setSelectionRange(pos, pos);
+        textareaRef.current.focus();
+      }
+    }, 0);
+  };
+
   return (
     <div className="flex flex-col h-full bg-background">
+      {/* Header */}
       <div className="px-8 py-4 border-b border-border/50">
         <input
           value={title}
@@ -44,6 +63,26 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
           placeholder={t('editor.noteTitlePlaceholder')}
         />
       </div>
+
+      {/* Toolbar */}
+      {!isPreview && (
+        <div className="px-8 py-2 flex items-center gap-1 border-b border-border/30 bg-muted/30">
+          <button onClick={() => insertMarkdown('**', '**')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Bold"><Bold size={14} /></button>
+          <button onClick={() => insertMarkdown('_', '_')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Italic"><Italic size={14} /></button>
+          <button onClick={() => insertMarkdown('[', '](url)')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Link"><Link size={14} /></button>
+          <button onClick={() => insertMarkdown('![alt](', ')')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Image"><Image size={14} /></button>
+          <div className="w-px h-4 bg-border/50 mx-1" />
+          <button onClick={() => insertMarkdown('- ')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="List"><List size={14} /></button>
+          <button onClick={() => insertMarkdown('1. ')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Ordered List"><ListOrdered size={14} /></button>
+          <div className="w-px h-4 bg-border/50 mx-1" />
+          <button onClick={() => insertMarkdown('`', '`')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Code"><Code size={14} /></button>
+          <button onClick={() => insertMarkdown('```\n', '\n```')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Code Block"><span className="text-xs font-bold">{ }</span></button>
+          <button onClick={() => insertMarkdown('[[', ']]')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Wikilink"><Hash size={14} /></button>
+          <button onClick={() => insertMarkdown('| Col1 | Col2 |\n| --- | --- |\n| ', ' |  |')} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-foreground transition-colors" title="Table"><Table size={14} /></button>
+        </div>
+      )}
+
+      {/* Content */}
       <div className="flex-1 p-8 overflow-y-auto scroll-elegant">
         {isPreview ? (
           <div className="prose max-w-none text-foreground/80">
@@ -72,6 +111,7 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
           </div>
         ) : (
           <textarea
+            ref={textareaRef}
             value={content}
             onChange={(e) => setContent(e.target.value)}
             className="w-full h-full bg-transparent text-foreground/80 resize-none outline-none font-mono text-sm leading-relaxed"
