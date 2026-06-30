@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck, Clock, Hash, Image, CheckCircle, FileX } from 'lucide-react';
+import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck, Clock, Hash, Image, CheckCircle, FileX, ChevronFirst } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Note, Folder as FolderType } from '../types';
 import CreateFolderModal from './modals/CreateFolderModal';
@@ -219,6 +219,7 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
   const [renameValue, setRenameValue] = useState('');
   const [movingNoteId, setMovingNoteId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -494,28 +495,47 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                   .filter(Boolean)
                   .slice(0, 5);
                 if (recentNotes.length === 0) return null;
+                const isCollapsed = collapsedSections.has('recent');
                 return (
                   <div className="mb-3">
-                    <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.recent')}</p>
-                    <div className="space-y-0.5">
-                      {recentNotes.map(note => note && (
-                        <div
-                          key={note.id}
-                          onClick={() => { onSelectNote(note.id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
-                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-200 ${activeNoteId === note.id ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
-                        >
-                          <FileText size={14} className={`shrink-0 ${activeNoteId === note.id ? 'text-sidebar-primary' : 'text-sidebar-foreground/55'}`} />
-                          <span className="text-sm truncate">{note.title}</span>
-                        </div>
-                      ))}
-                    </div>
+                    <button
+                      onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('recent') : next.add('recent'); return next; })}
+                      className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
+                    >
+                      {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                      {t('sidebar.recent')}
+                    </button>
+                    {!isCollapsed && (
+                      <div className="space-y-0.5">
+                        {recentNotes.map(note => note && (
+                          <div
+                            key={note.id}
+                            onClick={() => { onSelectNote(note.id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
+                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-200 ${activeNoteId === note.id ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
+                          >
+                            <FileText size={14} className={`shrink-0 ${activeNoteId === note.id ? 'text-sidebar-primary' : 'text-sidebar-foreground/55'}`} />
+                            <span className="text-sm truncate">{note.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 );
               })()}
 
               {/* Smart folders */}
+              {(() => {
+                const isCollapsed = collapsedSections.has('smart');
+                return (
               <div className="mb-3">
-                <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.smartFolders')}</p>
+                <button
+                  onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('smart') : next.add('smart'); return next; })}
+                  className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
+                >
+                  {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                  {t('sidebar.smartFolders')}
+                </button>
+                {!isCollapsed && (
                 <div className="space-y-0.5">
                   {[
                     { icon: Clock, label: t('smart.recentWeek'), id: 'recent-week' },
@@ -564,12 +584,24 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                     );
                   })}
                 </div>
+                )}
               </div>
+              );
+              })()}
 
               {/* Favorites section */}
-              {notes.filter(n => n.isPinned).length > 0 && (
+              {notes.filter(n => n.isPinned).length > 0 && (() => {
+                const isCollapsed = collapsedSections.has('favorites');
+                return (
                 <div className="mb-3">
-                  <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.favorites')}</p>
+                  <button
+                    onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('favorites') : next.add('favorites'); return next; })}
+                    className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
+                  >
+                    {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                    {t('sidebar.favorites')}
+                  </button>
+                  {!isCollapsed && (
                   <div className="space-y-0.5">
                     {notes.filter(n => n.isPinned).sort((a, b) => {
                       // Sort by: isPinned first, then by updated_at desc
@@ -587,16 +619,31 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                       </div>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+              );
+              })()}
 
               {/* Folders section */}
+              {(() => {
+                const isCollapsed = collapsedSections.has('folders');
+                return (
               <div>
-                <p className="px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40">{t('sidebar.folders')}</p>
+                <button
+                  onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('folders') : next.add('folders'); return next; })}
+                  className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
+                >
+                  {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                  {t('sidebar.folders')}
+                </button>
+                {!isCollapsed && (
                 <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
                   {renderTree(undefined)}
                 </DndContext>
+                )}
               </div>
+              );
+              })()}
             </>
           )}
         </div>
