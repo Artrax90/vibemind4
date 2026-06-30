@@ -24,14 +24,6 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
   const [repeat, setRepeat] = useState('none');
   const [message, setMessage] = useState('');
 
-  // Generate time slots
-  const timeSlots = [];
-  for (let h = 0; h < 24; h++) {
-    for (let m = 0; m < 60; m += 15) {
-      timeSlots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
-    }
-  }
-
   // Quick presets
   const presets = [
     { label: 'Через 1 час', date: (() => { const d = new Date(); d.setHours(d.getHours() + 1); return d; })() },
@@ -111,15 +103,12 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
               <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
                 <Clock size={12} /> {t('reminder.time')}
               </label>
-              <select
+              <input
+                type="time"
                 value={time}
                 onChange={(e) => setTime(e.target.value)}
-                className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all appearance-none"
-              >
-                {timeSlots.map(slot => (
-                  <option key={slot} value={slot}>{slot}</option>
-                ))}
-              </select>
+                className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all"
+              />
             </div>
 
             {/* Repeat */}

@@ -413,7 +413,7 @@ export default function App() {
 
         {/* Notifications */}
         {!showSettings && (
-          <div className="absolute top-6 right-6 z-10">
+          <div className="absolute top-6 right-20 z-10">
             <NotificationsPanel onNoteClick={handleNoteSelect} />
           </div>
         )}
