@@ -350,6 +350,7 @@ export default function App() {
           onNotesChange={setNotes}
           onFoldersChange={setFolders}
           onAddNote={addNote}
+          onAddBoard={(note) => { addNote(note); handleNoteSelect(note.id, 'edit'); }}
           onAddFolder={addFolder}
           onDeleteNote={deleteNote}
           onDeleteFolder={deleteFolder}

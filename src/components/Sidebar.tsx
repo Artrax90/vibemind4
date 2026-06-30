@@ -28,6 +28,7 @@ type SidebarProps = {
   onNotesChange: (notes: Note[]) => void;
   onFoldersChange: (folders: FolderType[]) => void;
   onAddNote: (note: Note) => void;
+  onAddBoard: (note: Note) => void;
   onAddFolder: (folder: FolderType) => void;
   onDeleteNote: (id: string) => void;
   onDeleteFolder: (id: string) => void;
@@ -205,7 +206,7 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
   );
 }
 
-export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder }: SidebarProps) {
+export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddBoard, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder }: SidebarProps) {
   const { t } = useLanguage();
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -289,6 +290,18 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
     const newNote: Note = { id: `n${Date.now()}`, title: t('common.newNote'), content: '', folderId: selectedFolderId, permission: 'owner' };
     try {
       onAddNote(newNote);
+      if (selectedFolderId) {
+        setExpandedFolders(new Set(expandedFolders).add(selectedFolderId));
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCreateBoard = async () => {
+    const newNote: Note = { id: `n${Date.now()}`, title: t('common.newBoard'), content: '<!-- board:{"items":[],"connections":[]} -->', folderId: selectedFolderId, permission: 'owner' } as Note;
+    try {
+      onAddBoard(newNote);
       if (selectedFolderId) {
         setExpandedFolders(new Set(expandedFolders).add(selectedFolderId));
       }
@@ -446,6 +459,13 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
               title={t('sidebar.newNote')}
             >
               <FilePlus size={16} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleCreateBoard(); }}
+              className="p-1.5 hover:bg-sidebar-accent rounded-lg text-sidebar-foreground/50 hover:text-sidebar-accent-foreground transition-all duration-200"
+              title={t('sidebar.newBoard')}
+            >
+              <LayoutGrid size={16} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); setIsCreateFolderOpen(true); }}
