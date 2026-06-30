@@ -27,7 +27,7 @@ export default function PublishModal({ isOpen, onClose, slug, title }: PublishMo
     }
   }, [isOpen, onClose]);
 
-  const url = slug ? `${window.location.origin}/published/${slug}` : '';
+  const url = slug ? `${window.location.origin}/api/published/${slug}` : '';
 
   const handleCopy = async () => {
     try {
