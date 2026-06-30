@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../../contexts/LanguageContext';
@@ -12,7 +12,20 @@ type CreateFolderModalProps = {
 
 export default function CreateFolderModal({ isOpen, onClose, onCreate, parentId }: CreateFolderModalProps) {
   const { t } = useLanguage();
+  const panelRef = useRef<HTMLDivElement>(null);
   const [name, setName] = useState('');
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen, onClose]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -31,6 +44,7 @@ export default function CreateFolderModal({ isOpen, onClose, onCreate, parentId 
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
+            ref={panelRef}
             className="w-full max-w-md bg-card border border-border/50 rounded-2xl shadow-premium-lg overflow-hidden"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-border/50">

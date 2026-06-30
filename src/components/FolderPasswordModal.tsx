@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Lock, Loader2, ShieldCheck, ShieldAlert } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -13,11 +13,24 @@ type FolderPasswordModalProps = {
 
 export default function FolderPasswordModal({ isOpen, onClose, onConfirm, mode, folderName }: FolderPasswordModalProps) {
   const { t } = useLanguage();
+  const panelRef = useRef<HTMLDivElement>(null);
   const [oldPassword, setOldPassword] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen, onClose]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -87,6 +100,7 @@ export default function FolderPasswordModal({ isOpen, onClose, onConfirm, mode, 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
+        ref={panelRef}
         className="w-full max-w-sm border border-border/50 rounded-2xl shadow-premium-lg overflow-hidden bg-card flex flex-col"
       >
         <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, UserPlus, Loader2, Trash2, Globe, Link as LinkIcon, Copy, Check } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -23,6 +23,7 @@ type ShareModalProps = {
 
 export default function ShareModal({ isOpen, onClose, resourceId, resourceType, resourceName, baseUrl, onShareStatusChange }: ShareModalProps) {
   const { t } = useLanguage();
+  const panelRef = useRef<HTMLDivElement>(null);
   const [username, setUsername] = useState('');
   const [permission, setPermission] = useState<'read' | 'write'>('read');
   const [isPublic, setIsPublic] = useState(false);
@@ -32,6 +33,18 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const effectiveBaseUrl = baseUrl || window.location.origin;
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen, onClose]);
 
   useEffect(() => {
     if (isOpen && resourceId && resourceType) {
@@ -126,6 +139,7 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
+        ref={panelRef}
         className="w-full max-w-lg border border-border/50 rounded-2xl shadow-premium-lg overflow-hidden bg-card flex flex-col"
       >
         <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Bell, Calendar, Clock, Repeat } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
@@ -18,11 +18,24 @@ const REPEAT_OPTIONS = [
 
 export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderModalProps) {
   const { t } = useLanguage();
+  const panelRef = useRef<HTMLDivElement>(null);
   const today = new Date();
   const [date, setDate] = useState(today.toISOString().split('T')[0]);
   const [time, setTime] = useState('09:00');
   const [repeat, setRepeat] = useState('none');
   const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen, onClose]);
 
   // Quick presets
   const presets = [
@@ -52,7 +65,7 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
   return (
     <AnimatePresence>
       <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-        <motion.div
+        <motion.div ref={panelRef}
           initial={{ opacity: 0, scale: 0.95, y: 10 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95 }}

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, Database, Link, Server, Save } from 'lucide-react';
 
@@ -9,9 +9,22 @@ interface AddDBModalProps {
 }
 
 export default function AddDBModal({ isOpen, onClose, onConnect }: AddDBModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
   const [dbType, setDbType] = useState('postgresql');
   const [displayName, setDisplayName] = useState('');
   const [connectionString, setConnectionString] = useState('');
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -30,6 +43,7 @@ export default function AddDBModal({ isOpen, onClose, onConnect }: AddDBModalPro
           initial={{ opacity: 0, scale: 0.95, y: 20 }}
           animate={{ opacity: 1, scale: 1, y: 0 }}
           exit={{ opacity: 0, scale: 0.95, y: 20 }}
+          ref={panelRef}
           className="w-full max-w-lg bg-background border border-border/50 rounded-2xl shadow-2xl overflow-hidden"
         >
           <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between">
