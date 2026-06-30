@@ -72,6 +72,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [smartFilter, setSmartFilter] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -170,13 +171,38 @@ export default function App() {
   };
 
   const availableNotes = React.useMemo(() => {
-    return notes.filter(n => {
+    let filtered = notes.filter(n => {
       if (!n.folderId) return true;
       const f = folders.find(f => f.id === n.folderId);
       if (f?.isProtected && !unlockedFolders.has(n.folderId)) return false;
       return true;
     });
-  }, [notes, folders, unlockedFolders]);
+
+    if (smartFilter) {
+      filtered = filtered.filter(n => {
+        switch (smartFilter) {
+          case 'recent-week': {
+            const d = new Date(n.updated_at || '');
+            const week = new Date();
+            week.setDate(week.getDate() - 7);
+            return d > week;
+          }
+          case 'with-tags':
+            return (n.content || '').includes('#');
+          case 'with-images':
+            return (n.content || '').includes('![');
+          case 'with-tasks':
+            return (n.content || '').includes('- [ ]') || (n.content || '').includes('- [x]');
+          case 'no-tags':
+            return !(n.content || '').includes('#') && !n.folderId;
+          default:
+            return true;
+        }
+      });
+    }
+
+    return filtered;
+  }, [notes, folders, unlockedFolders, smartFilter]);
 
   const activeNote = availableNotes.find(n => n.id === activeNoteId);
 
@@ -304,12 +330,12 @@ export default function App() {
         ${isFocusMode ? 'hidden' : 'flex'} 
         ${isMobileMenuOpen ? 'fixed inset-y-0 left-0 z-50' : 'hidden md:flex'}
       `}>
-        <Sidebar 
-          notes={notes} 
-          folders={folders} 
+        <Sidebar
+          notes={notes}
+          folders={folders}
           unlockedFolders={unlockedFolders}
           setUnlockedFolders={setUnlockedFolders}
-          activeNoteId={activeNoteId} 
+          activeNoteId={activeNoteId}
           onSelectNote={handleNoteSelect}
           onOpenSettings={() => { setShowSettings(true); setIsMobileMenuOpen(false); }}
           onOpenSearch={() => { setShowSearch(true); setIsMobileMenuOpen(false); }}
@@ -323,6 +349,8 @@ export default function App() {
           onRenameFolder={renameFolder}
           onShare={handleShare}
           onClose={() => setIsMobileMenuOpen(false)}
+          smartFilter={smartFilter}
+          onSmartFilter={setSmartFilter}
         />
       </div>
       

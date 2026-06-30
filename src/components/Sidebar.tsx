@@ -35,6 +35,8 @@ type SidebarProps = {
   onShare: (type: 'note' | 'folder', id: string) => void;
   onQuit?: () => void;
   onClose?: () => void;
+  smartFilter: string | null;
+  onSmartFilter: (filter: string | null) => void;
 };
 
 // Sortable Note Item
@@ -202,7 +204,7 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
   );
 }
 
-export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose }: SidebarProps) {
+export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter }: SidebarProps) {
   const { t } = useLanguage();
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -527,12 +529,14 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                       : id === 'recent-week' ? notes.filter(n => { const d = new Date(n.updated_at || ''); const week = new Date(); week.setDate(week.getDate() - 7); return d > week; }).length
                       : 0;
                     if (count === 0) return null;
+                    const isActive = smartFilter === id;
                     return (
                       <div
                         key={id}
-                        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground transition-colors duration-200"
+                        onClick={() => { onSmartFilter(isActive ? null : id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
+                        className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-200 ${isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
                       >
-                        <Icon size={14} className="shrink-0 text-sidebar-foreground/55" />
+                        <Icon size={14} className={`shrink-0 ${isActive ? 'text-sidebar-primary' : 'text-sidebar-foreground/55'}`} />
                         <span className="text-sm truncate flex-1">{label}</span>
                         <span className="text-[10px] text-sidebar-foreground/40">{count}</span>
                       </div>
