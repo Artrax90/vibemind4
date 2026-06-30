@@ -130,12 +130,8 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
 
   return (
     <div ref={setNodeRef} className="relative z-10">
-      <div 
+      <div
         {...longPressProps}
-        onClick={(e) => {
-          e.stopPropagation();
-          toggleFolder(folder.id, e);
-        }}
         onContextMenu={(e) => {
           e.preventDefault();
           handleContextMenu(e, 'folder', folder.id);

@@ -165,7 +165,8 @@ export default function App() {
 
     setActiveNoteId(id);
     setShowSettings(false);
-    setViewMode(mode);
+    // Always switch to edit/preview when selecting a note
+    setViewMode(mode === 'edit' ? 'edit' : 'preview');
     setShowSearch(false);
     setIsMobileMenuOpen(false);
   };
@@ -204,7 +205,7 @@ export default function App() {
     return filtered;
   }, [notes, folders, unlockedFolders, smartFilter]);
 
-  const activeNote = availableNotes.find(n => n.id === activeNoteId);
+  const activeNote = notes.find(n => n.id === activeNoteId);
 
   const updateNote = (id: string, updates: Partial<Note>) => {
     setNotes(prev => {
