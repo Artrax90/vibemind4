@@ -4,6 +4,7 @@ import { api } from '../api/client';
 import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell } from 'lucide-react';
 import ReminderModal from './ReminderModal';
 import PublishModal from './PublishModal';
+import BoardEditor from './BoardEditor';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
@@ -387,8 +388,17 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
      note.content.includes(`[[${n.title}]]`))
   ).slice(0, 3);
 
+  const isBoard = content.includes('<!-- board:');
+
   return (
     <div className="flex flex-col h-full bg-background relative overflow-hidden">
+      {/* Board Editor overlay */}
+      {isBoard && (
+        <div className="absolute inset-0 z-20 bg-background flex flex-col">
+          <BoardEditor content={content} onChange={(c) => { setContent(c); onUpdate(note.id, { content: c }); }} readOnly={isReadOnly} />
+        </div>
+      )}
+
       {/* Header */}
       <div className="pl-16 pr-4 md:px-8 pt-16 pb-4 flex items-center justify-between border-b border-border/50">
         <div className="flex items-center flex-1 min-w-0">

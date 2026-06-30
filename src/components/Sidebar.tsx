@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck, Clock, Hash, Image, CheckCircle, FileX, ChevronFirst } from 'lucide-react';
+import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck, Clock, Hash, Image, CheckCircle, FileX, ChevronFirst, LayoutGrid } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Note, Folder as FolderType } from '../types';
 import CreateFolderModal from './modals/CreateFolderModal';
@@ -28,6 +28,7 @@ type SidebarProps = {
   onNotesChange: (notes: Note[]) => void;
   onFoldersChange: (folders: FolderType[]) => void;
   onAddNote: (note: Note) => void;
+  onAddBoard: (note: Note) => void;
   onAddFolder: (folder: FolderType) => void;
   onDeleteNote: (id: string) => void;
   onDeleteFolder: (id: string) => void;
@@ -205,7 +206,7 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
   );
 }
 
-export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder }: SidebarProps) {
+export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddBoard, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder }: SidebarProps) {
   const { t } = useLanguage();
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -294,6 +295,14 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  const handleCreateBoard = () => {
+    const newNote: Note = { id: `n${Date.now()}`, title: t('common.newBoard'), content: '<!-- board:{"items":[]} -->', folderId: selectedFolderId, permission: 'owner' } as Note;
+    onAddBoard(newNote);
+    if (selectedFolderId) {
+      setExpandedFolders(new Set(expandedFolders).add(selectedFolderId));
     }
   };
 
@@ -446,6 +455,13 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
               title={t('sidebar.newNote')}
             >
               <FilePlus size={16} />
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); handleCreateBoard(); }}
+              className="p-1.5 hover:bg-sidebar-accent rounded-lg text-sidebar-foreground/50 hover:text-sidebar-accent-foreground transition-all duration-200"
+              title={t('sidebar.newBoard')}
+            >
+              <LayoutGrid size={16} />
             </button>
             <button
               onClick={(e) => { e.stopPropagation(); setIsCreateFolderOpen(true); }}
