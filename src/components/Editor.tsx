@@ -179,7 +179,7 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
                 blockquote: ({children}) => <blockquote className="border-l-4 border-primary/30 pl-4 italic text-muted-foreground my-4">{children}</blockquote>,
                 a: ({children, ...props}) => <a {...props} className="text-primary underline decoration-primary/30 hover:decoration-primary">{children}</a>,
                 code: ({children}: any) => {
-                  return <code className="bg-gray-100 px-1 py-0.5 rounded text-sm">{String(children || '')}</code>;
+                  return <code>{String(children || '')}</code>;
                 },
                 ul: ({children}) => <ul className="list-disc list-inside my-4 space-y-1 text-foreground/80">{children}</ul>,
                 ol: ({children}) => <ol className="list-decimal list-inside my-4 space-y-1 text-foreground/80">{children}</ol>,
