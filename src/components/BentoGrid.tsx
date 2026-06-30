@@ -70,7 +70,9 @@ export default function BentoGrid({ notes, folders, activeNoteId, onNoteClick, f
     <div className="p-6 h-full overflow-y-auto scroll-elegant">
       {/* Header */}
       <div className="mb-6 px-2">
-        <h1 className="font-serif text-4xl text-foreground mb-1">{t('bento.title')}</h1>
+        <h1 className="font-serif text-4xl text-foreground mb-1">
+          {folderId ? folders.find(f => f.id === folderId)?.name || t('bento.title') : t('bento.title')}
+        </h1>
         <p className="text-muted-foreground text-sm">{filteredNotes.length} {t('bento.notes')}</p>
       </div>
 

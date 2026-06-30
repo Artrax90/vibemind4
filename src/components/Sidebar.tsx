@@ -37,6 +37,8 @@ type SidebarProps = {
   onClose?: () => void;
   smartFilter: string | null;
   onSmartFilter: (filter: string | null) => void;
+  onSwitchView: (mode: 'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento') => void;
+  onSelectFolder: (folderId: string | null) => void;
 };
 
 // Sortable Note Item
@@ -111,7 +113,7 @@ function SortableNoteItem({ note, activeNoteId, onSelectNote, onContextMenu, t }
 }
 
 // Droppable Folder Item
-function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameValue, setRenameValue, handleRenameSubmit, toggleFolder, handleContextMenu, onDeleteFolder, onShare, t, children }: any) {
+function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameValue, setRenameValue, handleRenameSubmit, toggleFolder, handleContextMenu, onDeleteFolder, onShare, onViewFolder, t, children }: any) {
   const { isOver, setNodeRef } = useDroppable({
     id: folder.id,
     data: { type: 'folder', folder }
@@ -154,7 +156,10 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
           ) : (
             <div className="flex flex-col min-w-0">
               <div className="flex items-center">
-                <span className="text-sm truncate">{folder.name}</span>
+                <span
+                  className="text-sm truncate cursor-pointer hover:text-primary"
+                  onClick={(e) => { e.stopPropagation(); onViewFolder(folder.id); }}
+                >{folder.name}</span>
                 {!!folder.isSharedByMe && <Share2 size={10} className="ml-1 text-primary opacity-70" />}
                 {folder.isProtected && <Lock size={10} className="ml-1 text-amber-500 opacity-80" />}
               </div>
@@ -200,7 +205,7 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
   );
 }
 
-export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter }: SidebarProps) {
+export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder }: SidebarProps) {
   const { t } = useLanguage();
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -383,7 +388,7 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
           const isRenaming = renamingFolderId === folder.id;
           
           return (
-            <DroppableFolder 
+            <DroppableFolder
               key={folder.id}
               folder={folder}
               isExpanded={isExpanded}
@@ -396,6 +401,7 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
               handleContextMenu={handleContextMenu}
               onDeleteFolder={onDeleteFolder}
               onShare={onShare}
+              onViewFolder={(id: string) => { onSelectFolder(id); onSwitchView('bento'); }}
               t={t}
             >
               {isExpanded && renderTree(folder.id, depth + 1)}
@@ -529,7 +535,7 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                     return (
                       <div
                         key={id}
-                        onClick={() => { onSmartFilter(isActive ? null : id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
+                        onClick={() => { onSmartFilter(isActive ? null : id); onSwitchView('bento'); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
                         className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-200 ${isActive ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
                       >
                         <Icon size={14} className={`shrink-0 ${isActive ? 'text-sidebar-primary' : 'text-sidebar-foreground/55'}`} />

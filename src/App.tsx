@@ -73,6 +73,7 @@ export default function App() {
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [smartFilter, setSmartFilter] = useState<string | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
       if (typeof window !== 'undefined') {
@@ -352,6 +353,8 @@ export default function App() {
           onClose={() => setIsMobileMenuOpen(false)}
           smartFilter={smartFilter}
           onSmartFilter={setSmartFilter}
+          onSwitchView={setViewMode}
+          onSelectFolder={setSelectedFolderId}
         />
       </div>
       
@@ -481,10 +484,11 @@ export default function App() {
               className="h-full w-full"
             >
               <BentoGrid
-                notes={availableNotes}
+                notes={smartFilter ? availableNotes : notes.filter(n => !n.folderId || folders.some(f => f.id === n.folderId && (!f.isProtected || unlockedFolders.has(f.id))))}
                 folders={folders}
                 activeNoteId={activeNoteId}
                 onNoteClick={handleNoteSelect}
+                folderId={selectedFolderId || undefined}
               />
             </motion.div>
           ) : viewMode === 'calendar' ? (
