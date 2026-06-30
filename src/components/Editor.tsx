@@ -10,9 +10,6 @@ import remarkBreaks from 'remark-breaks';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useLanguage } from '../contexts/LanguageContext';
-import mermaid from 'mermaid';
-
-mermaid.initialize({ startOnLoad: false, theme: 'default' });
 
 const TAG_COLORS: Record<string, string> = {
   work: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
@@ -36,8 +33,11 @@ function MermaidDiagram({ code }: { code: string }) {
 
   React.useEffect(() => {
     if (ref.current && code) {
-      const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
-      mermaid.render(id, code).then(({ svg }) => setSvg(svg)).catch(() => setSvg(''));
+      import('mermaid').then(mermaid => {
+        mermaid.default.initialize({ startOnLoad: false, theme: 'default' });
+        const id = `mermaid-${Math.random().toString(36).slice(2, 9)}`;
+        mermaid.default.render(id, code).then(({ svg }: any) => setSvg(svg)).catch(() => setSvg(''));
+      });
     }
   }, [code]);
 
