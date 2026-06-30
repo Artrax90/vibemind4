@@ -450,15 +450,6 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
             <Bell size={20} />
           </button>
 
-          <ReminderModal
-            isOpen={showReminderModal}
-            onClose={() => setShowReminderModal(false)}
-            onConfirm={async (data) => {
-              const { api } = await import('../api/client');
-              await api.createReminder({ note_id: note.id, ...data });
-            }}
-          />
-
           {note.permission === 'owner' && (
             <button
               onClick={async () => {
@@ -758,6 +749,15 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
           )}
         </div>
       )}
+
+      <ReminderModal
+        isOpen={showReminderModal}
+        onClose={() => setShowReminderModal(false)}
+        onConfirm={async (data) => {
+          const { api } = await import('../api/client');
+          await api.createReminder({ note_id: note.id, ...data });
+        }}
+      />
     </div>
   );
 }
