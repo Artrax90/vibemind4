@@ -2,9 +2,19 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { useLanguage } from '../contexts/LanguageContext';
 import ReactMarkdown from 'react-markdown';
+import ReminderModal from './ReminderModal';
+import PublishModal from './PublishModal';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Bold, Italic, Link, Image, List, ListOrdered, Code, Table, Hash, ChevronDown } from 'lucide-react';
+
+function SyntaxBlock({ code, language }: { code: string; language: string }) {
+  return (
+    <pre className="bg-[#1e1e2d] text-[#e2e8f0] p-4 rounded-xl overflow-x-auto my-4 font-mono text-sm">
+      <code>{code}</code>
+    </pre>
+  );
+}
 
 type EditorProps = {
   note: Note;
@@ -22,6 +32,9 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
   const [title, setTitle] = useState(note?.title || '');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [publishSlug, setPublishSlug] = useState<string | null>(null);
+  const [showPublishModal, setShowPublishModal] = useState(false);
 
   useEffect(() => {
     setContent(note?.content || '');
@@ -74,14 +87,46 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
   return (
     <div className="flex flex-col h-full bg-background">
       {/* Header */}
-      <div className="px-8 py-4 border-b border-border/50">
+      <div className="px-8 py-4 border-b border-border/50 flex items-center justify-between">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           disabled={isPreview}
-          className="text-3xl font-bold text-foreground bg-transparent outline-none w-full font-serif"
+          className="text-3xl font-bold text-foreground bg-transparent outline-none flex-1 font-serif"
           placeholder={t('editor.noteTitlePlaceholder')}
         />
+        <div className="flex items-center gap-2 shrink-0 ml-4">
+          <button
+            onClick={() => setShowReminderModal(true)}
+            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
+            title={t('editor.reminder')}
+          >
+            <span className="text-lg">🔔</span>
+          </button>
+          <button
+            onClick={async () => {
+              const { api } = await import('../api/client');
+              const result = await api.publishNote(note.id);
+              if (result.slug) {
+                setPublishSlug(result.slug);
+                setShowPublishModal(true);
+              }
+            }}
+            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
+            title={t('editor.publish')}
+          >
+            <span className="text-lg">🌐</span>
+          </button>
+          {onShare && (
+            <button
+              onClick={onShare}
+              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
+              title="Share"
+            >
+              <span className="text-lg">↗</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Toolbar */}
@@ -164,6 +209,22 @@ export default function Editor({ note, onUpdate, isPreview = false }: EditorProp
           />
         )}
       </div>
+
+      <ReminderModal
+        isOpen={showReminderModal}
+        onClose={() => setShowReminderModal(false)}
+        onConfirm={async (data) => {
+          const { api } = await import('../api/client');
+          await api.createReminder({ note_id: note.id, ...data });
+        }}
+      />
+
+      <PublishModal
+        isOpen={showPublishModal}
+        onClose={() => setShowPublishModal(false)}
+        slug={publishSlug}
+        title={note.title}
+      />
     </div>
   );
 }
