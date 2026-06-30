@@ -387,67 +387,45 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   return (
     <div className="flex flex-col h-full bg-background relative overflow-hidden">
       {/* Header */}
-      <div className="pl-16 pr-4 md:px-8 py-6 flex items-center justify-between border-b border-border/50">
-        <div className="flex items-center flex-1">
+      <div className="pl-16 pr-4 md:px-8 pt-16 pb-4 flex items-center justify-between border-b border-border/50">
+        <div className="flex items-center flex-1 min-w-0">
           <input
             value={title}
             onChange={(e) => setTitle(e.target.value)}
             disabled={isReadOnly}
-            className={`text-3xl font-bold text-foreground bg-transparent outline-none flex-1 font-serif ${isReadOnly ? 'cursor-default' : ''}`}
+            className={`text-3xl font-bold text-foreground bg-transparent outline-none flex-1 font-serif min-w-0 ${isReadOnly ? 'cursor-default' : ''}`}
             placeholder={t('editor.noteTitlePlaceholder')}
           />
-          {!!note.isSharedByMe && (
-            <div className="ml-2 px-2 py-1 bg-primary/10 rounded-md flex items-center text-primary" title="Shared">
-              <Share2 size={14} className="mr-1" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">Shared</span>
-            </div>
-          )}
         </div>
-        
-        <div className="flex items-center space-x-4">
-          {!isReadOnly && (
-            <div className="flex items-center space-x-1 text-xs font-mono">
-              {isSaving ? (
-                <>
-                  <Cloud className="w-4 h-4 text-primary animate-pulse" />
-                  <span className="text-primary uppercase tracking-widest">{t('editor.syncing')}</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle className="w-4 h-4 text-emerald-500" />
-                  <span className="text-emerald-500 uppercase tracking-widest">{t('editor.saved')}</span>
-                </>
-              )}
-            </div>
-          )}
 
+        <div className="flex items-center gap-2 shrink-0 ml-4">
           {!isReadOnly && (
-            <button 
+            <button
               onClick={handleSummarize}
               disabled={isSummarizing}
-              className="p-2 text-primary hover:bg-primary/10 rounded-lg transition-all hover:scale-110 active:scale-95 disabled:opacity-50"
+              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors disabled:opacity-50"
               title={t('editor.summarize')}
             >
-              <Wand2 size={20} className={isSummarizing ? 'animate-spin' : ''} />
+              <Wand2 size={18} className={isSummarizing ? 'animate-spin' : ''} />
             </button>
           )}
-          
+
           {onShare && note.permission === 'owner' && (
             <button
               onClick={onShare}
-              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-all hover:scale-110 active:scale-95"
+              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
               title="Share"
             >
-              <Share2 size={20} />
+              <Share2 size={18} />
             </button>
           )}
 
           <button
             onClick={() => setShowReminderModal(true)}
-            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-all hover:scale-110 active:scale-95"
+            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
             title={t('editor.reminder') || 'Напоминание'}
           >
-            <Bell size={20} />
+            <Bell size={18} />
           </button>
 
           {note.permission === 'owner' && (
@@ -460,10 +438,10 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
                   prompt(t('editor.publishUrl') || 'Ссылка для публикации:', url);
                 }
               }}
-              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-all hover:scale-110 active:scale-95"
+              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
               title={t('editor.publish') || 'Опубликовать'}
             >
-              <Globe size={20} />
+              <Globe size={18} />
             </button>
           )}
         </div>
