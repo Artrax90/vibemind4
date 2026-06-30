@@ -96,6 +96,16 @@ try:
                 conn.execute(text('ALTER TABLE folders ADD COLUMN password_hash TEXT;'))
                 logger.info("Added password_hash to folders")
             conn.commit()
+
+    # Config table migrations
+    if 'configs' in inspector.get_table_names():
+        config_columns = [c['name'] for c in inspector.get_columns('configs')]
+        with engine.connect() as conn:
+            for col in ['google_calendar_client_id', 'google_calendar_client_secret', 'google_calendar_token', 'google_calendar_refresh']:
+                if col not in config_columns:
+                    conn.execute(text(f'ALTER TABLE configs ADD COLUMN {col} TEXT;'))
+                    logger.info(f"Added {col} to configs")
+            conn.commit()
 except Exception as e:
     logger.warning(f"Migration error: {e}")
 
