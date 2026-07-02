@@ -596,9 +596,10 @@ export const api = {
   },
 
   // Publishing
-  async publishNote(noteId: string) {
+  async publishNote(noteId: string, expiresMinutes: number = 0) {
     try {
-      const res = await fetch(`${BASE_URL}/api/notes/${noteId}/publish`, {
+      const params = expiresMinutes > 0 ? `?expires_hours=${expiresMinutes}` : '';
+      const res = await fetch(`${BASE_URL}/api/notes/${noteId}/publish${params}`, {
         method: 'POST',
         headers: getAuthHeaders()
       });

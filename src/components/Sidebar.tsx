@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck, Clock, Hash, Image, CheckCircle, FileX, ChevronFirst } from 'lucide-react';
+import { Folder, FileText, Settings as SettingsIcon, Plus, MoreVertical, Search, ChevronRight, ChevronDown, FilePlus, FolderPlus, Edit2, Trash2, Share2, FolderInput, Sparkles, X, LogOut, Pin, PinOff, RefreshCw, Lock, PinIcon, ShieldCheck, Clock, Hash, Image, CheckCircle, FileX, Layout, Globe, PanelLeftClose } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Note, Folder as FolderType } from '../types';
 import CreateFolderModal from './modals/CreateFolderModal';
@@ -37,8 +37,10 @@ type SidebarProps = {
   onClose?: () => void;
   smartFilter: string | null;
   onSmartFilter: (filter: string | null) => void;
-  onSwitchView: (mode: 'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento') => void;
+  onSwitchView: (mode: 'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento' | 'board') => void;
   onSelectFolder: (folderId: string | null) => void;
+  onAddBoard?: () => void;
+  onToggleSidebar?: () => void;
 };
 
 // Sortable Note Item
@@ -87,13 +89,20 @@ function SortableNoteItem({ note, activeNoteId, onSelectNote, onContextMenu, t }
     >
       <div className="flex items-center overflow-hidden flex-1">
         <div className="flex items-center flex-shrink-0 mr-2 ml-[18px]">
-          <FileText size={14} className={`opacity-70 ${activeNoteId === note.id ? 'text-primary' : 'text-muted-foreground'}`} />
+          {note.content?.includes('<!-- board:') ? <Layout size={14} className={`opacity-70 ${activeNoteId === note.id ? 'text-primary' : 'text-muted-foreground'}`} /> : <FileText size={14} className={`opacity-70 ${activeNoteId === note.id ? 'text-primary' : 'text-muted-foreground'}`} />}
           {!!note.isPinned && <Pin size={10} className="ml-1 text-primary fill-primary" />}
         </div>
         <div className="flex flex-col min-w-0">
           <div className="flex items-center">
             <span className="text-sm truncate">{note.title}</span>
             {!!note.isSharedByMe && <Share2 size={12} className="ml-1.5 text-primary" />}
+            {!!note.isPublished && (
+              note.publishedExpiresAt ? (
+                <PublishedTimer expiresAt={note.publishedExpiresAt} />
+              ) : (
+                <Globe size={12} className="ml-1.5 text-emerald-500" />
+              )
+            )}
           </div>
           {note.isShared && (
             <span className="text-[10px] text-muted-foreground/60 truncate flex items-center">
@@ -205,7 +214,26 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
   );
 }
 
-export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder }: SidebarProps) {
+function PublishedTimer({ expiresAt }: { expiresAt: string }) {
+  const { t } = useLanguage();
+  const [timeLeft, setTimeLeft] = useState('');
+  useEffect(() => {
+    const update = () => {
+      const diff = new Date(expiresAt).getTime() - Date.now();
+      if (diff <= 0) { setTimeLeft('expired'); return; }
+      const h = Math.floor(diff / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      setTimeLeft(h > 0 ? `${h}h ${m}m` : m > 0 ? `${m}m ${s}s` : `${s}s`);
+    };
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [expiresAt]);
+  return <span className="ml-1.5 text-[10px] text-amber-500 font-mono">{timeLeft === 'expired' ? t('board.expired') : timeLeft}</span>;
+}
+
+export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder, onAddBoard, onToggleSidebar }: SidebarProps) {
   const { t } = useLanguage();
   const [isCreateFolderOpen, setIsCreateFolderOpen] = useState(false);
   const [plusMenuOpen, setPlusMenuOpen] = useState(false);
@@ -219,7 +247,7 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
   const [renameValue, setRenameValue] = useState('');
   const [movingNoteId, setMovingNoteId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set());
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(new Set(['recent', 'smart', 'favorites']));
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -405,7 +433,11 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
               onViewFolder={(id: string) => { onSelectFolder(id); onSwitchView('bento'); }}
               t={t}
             >
-              {isExpanded && renderTree(folder.id, depth + 1)}
+              <div className={`grid transition-[grid-template-rows] duration-200 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                  {renderTree(folder.id, depth + 1)}
+                </div>
+              </div>
             </DroppableFolder>
           );
         })}
@@ -431,7 +463,7 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
       <motion.div
         initial={{ x: -250 }}
         animate={{ x: 0 }}
-        className="w-64 bg-sidebar/95 backdrop-blur-xl border-r border-sidebar-border flex flex-col h-full relative"
+        className="w-60 bg-sidebar/95 backdrop-blur-xl border-r border-sidebar-border flex flex-col h-full relative"
         onClick={() => setSelectedFolderId(undefined)}
       >
         <div className="px-5 pt-6 pb-4 flex items-center justify-between">
@@ -454,6 +486,24 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
             >
               <FolderPlus size={16} />
             </button>
+            {onAddBoard && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onAddBoard(); }}
+                className="p-1.5 hover:bg-sidebar-accent rounded-lg text-sidebar-foreground/50 hover:text-sidebar-accent-foreground transition-all duration-200"
+                title={t('board.newBoard')}
+              >
+                <Layout size={16} />
+              </button>
+            )}
+            {onToggleSidebar && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleSidebar(); }}
+                className="p-1.5 hover:bg-sidebar-accent rounded-lg text-sidebar-foreground/50 hover:text-sidebar-accent-foreground transition-all duration-200"
+                title={t('board.collapseSidebar')}
+              >
+                <PanelLeftClose size={16} />
+              </button>
+            )}
             {onClose && (
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(); }}
@@ -499,26 +549,28 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                 return (
                   <div className="mb-3">
                     <button
-                      onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('recent') : next.add('recent'); return next; })}
-                      className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
+                      onClick={() => { const next = new Set(collapsedSections); isCollapsed ? next.delete('recent') : next.add('recent'); setCollapsedSections(next); }}
+                      className="w-full flex items-center px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors"
                     >
-                      {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                      {isCollapsed ? <ChevronRight size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
                       {t('sidebar.recent')}
                     </button>
-                    {!isCollapsed && (
-                      <div className="space-y-0.5">
-                        {recentNotes.map(note => note && (
-                          <div
-                            key={note.id}
-                            onClick={() => { onSelectNote(note.id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
-                            className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-200 ${activeNoteId === note.id ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
-                          >
-                            <FileText size={14} className={`shrink-0 ${activeNoteId === note.id ? 'text-sidebar-primary' : 'text-sidebar-foreground/55'}`} />
-                            <span className="text-sm truncate">{note.title}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
+                    <div className="grid transition-[grid-template-rows] duration-200 ease-in-out" style={{ gridTemplateRows: isCollapsed ? '0fr' : '1fr' }}>
+                    <div className="overflow-hidden">
+                    <div className="space-y-0.5">
+                      {recentNotes.map(note => note && (
+                        <div
+                          key={note.id}
+                          onClick={() => { onSelectNote(note.id); if (window.innerWidth < 768) document.dispatchEvent(new CustomEvent('close-sidebar')); }}
+                          className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors duration-200 ${activeNoteId === note.id ? 'bg-sidebar-accent text-sidebar-accent-foreground font-medium' : 'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'}`}
+                        >
+                          <FileText size={14} className={`shrink-0 ${activeNoteId === note.id ? 'text-sidebar-primary' : 'text-sidebar-foreground/55'}`} />
+                          <span className="text-sm truncate">{note.title}</span>
+                        </div>
+                      ))}
+                    </div>
+                    </div>
+                    </div>
                   </div>
                 );
               })()}
@@ -527,16 +579,17 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
               {(() => {
                 const isCollapsed = collapsedSections.has('smart');
                 return (
-              <div className="mb-3">
-                <button
-                  onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('smart') : next.add('smart'); return next; })}
-                  className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
-                >
-                  {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
-                  {t('sidebar.smartFolders')}
-                </button>
-                {!isCollapsed && (
-                <div className="space-y-0.5">
+                <div className="mb-3">
+                  <button
+                    onClick={() => { const next = new Set(collapsedSections); isCollapsed ? next.delete('smart') : next.add('smart'); setCollapsedSections(next); }}
+                    className="w-full flex items-center px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors"
+                  >
+                    {isCollapsed ? <ChevronRight size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
+                    {t('sidebar.smartFolders')}
+                  </button>
+                    <div className="grid transition-[grid-template-rows] duration-200 ease-in-out" style={{ gridTemplateRows: isCollapsed ? '0fr' : '1fr' }}>
+                    <div className="overflow-hidden">
+                    <div className="space-y-0.5">
                   {[
                     { icon: Clock, label: t('smart.recentWeek'), id: 'recent-week' },
                     { icon: Hash, label: t('smart.withTags'), id: 'with-tags' },
@@ -583,11 +636,12 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                       </div>
                     );
                   })}
-                </div>
-                )}
-              </div>
-              );
-              })()}
+                   </div>
+                    </div>
+                    </div>
+                 </div>
+                 );
+               })()}
 
               {/* Favorites section */}
               {notes.filter(n => n.isPinned).length > 0 && (() => {
@@ -595,16 +649,16 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                 return (
                 <div className="mb-3">
                   <button
-                    onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('favorites') : next.add('favorites'); return next; })}
-                    className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
+                    onClick={() => { const next = new Set(collapsedSections); isCollapsed ? next.delete('favorites') : next.add('favorites'); setCollapsedSections(next); }}
+                    className="w-full flex items-center px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors"
                   >
-                    {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
+                    {isCollapsed ? <ChevronRight size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
                     {t('sidebar.favorites')}
                   </button>
-                  {!isCollapsed && (
-                  <div className="space-y-0.5">
+                    <div className="grid transition-[grid-template-rows] duration-200 ease-in-out" style={{ gridTemplateRows: isCollapsed ? '0fr' : '1fr' }}>
+                    <div className="overflow-hidden">
+                    <div className="space-y-0.5">
                     {notes.filter(n => n.isPinned).sort((a, b) => {
-                      // Sort by: isPinned first, then by updated_at desc
                       const aTime = new Date(a.updated_at || 0).getTime();
                       const bTime = new Date(b.updated_at || 0).getTime();
                       return bTime - aTime;
@@ -618,44 +672,58 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                         <span className="text-sm truncate">{note.title}</span>
                       </div>
                     ))}
-                  </div>
-                )}
-              </div>
-              );
+                     </div>
+                     </div>
+                     </div>
+                </div>
+                );
               })()}
 
               {/* Folders section */}
               {(() => {
                 const isCollapsed = collapsedSections.has('folders');
                 return (
-              <div>
-                <button
-                  onClick={() => setCollapsedSections(prev => { const next = new Set(prev); isCollapsed ? next.delete('folders') : next.add('folders'); return next; })}
-                  className="flex items-center gap-1 px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 w-full text-left hover:text-sidebar-foreground/60"
-                >
-                  {isCollapsed ? <ChevronRight size={10} /> : <ChevronDown size={10} />}
-                  {t('sidebar.folders')}
-                </button>
-                {!isCollapsed && (
-                <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                  {renderTree(undefined)}
-                </DndContext>
-                )}
-              </div>
-              );
+                <div>
+                  <button
+                    onClick={() => { const next = new Set(collapsedSections); isCollapsed ? next.delete('folders') : next.add('folders'); setCollapsedSections(next); }}
+                    className="w-full flex items-center px-2.5 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wider text-sidebar-foreground/40 hover:text-sidebar-foreground/60 transition-colors"
+                  >
+                    {isCollapsed ? <ChevronRight size={12} className="mr-1" /> : <ChevronDown size={12} className="mr-1" />}
+                    {t('sidebar.folders')}
+                  </button>
+                     <div className="grid transition-[grid-template-rows] duration-200 ease-in-out" style={{ gridTemplateRows: isCollapsed ? '0fr' : '1fr' }}>
+                     <div className="overflow-hidden">
+                     <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                     <div className="space-y-0.5">
+                     {renderTree(undefined)}
+                     </div>
+                     </DndContext>
+                     </div>
+                     </div>
+                </div>
+                );
               })()}
             </>
           )}
         </div>
 
-        <div className="p-3 border-t border-sidebar-border">
+        <div className="p-3 border-t border-sidebar-border grid grid-cols-2 gap-2">
           <button
             onClick={(e) => { e.stopPropagation(); handleCreateNote(); }}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-2.5 text-sm font-semibold text-primary-foreground shadow-premium transition-transform duration-200 hover:-translate-y-0.5"
+            className="flex items-center justify-center gap-1.5 rounded-xl bg-primary px-2 py-2 text-xs font-semibold text-primary-foreground shadow-premium transition-transform duration-200 hover:-translate-y-0.5"
           >
-            <Plus size={16} />
+            <Plus size={14} />
             {t('sidebar.newNote')}
           </button>
+          {onAddBoard && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onAddBoard(); }}
+              className="flex items-center justify-center gap-1.5 rounded-xl bg-primary/80 px-2 py-2 text-xs font-semibold text-primary-foreground shadow-premium transition-transform duration-200 hover:-translate-y-0.5"
+            >
+              <Layout size={14} />
+              {t('board.newBoard')}
+            </button>
+          )}
         </div>
 
         <div className="px-3 pb-3 flex flex-col space-y-0.5">

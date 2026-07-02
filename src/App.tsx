@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
 import { Component, ErrorInfo, ReactNode } from 'react';
 import Sidebar from './components/Sidebar';
 import Editor from './components/Editor';
@@ -6,13 +6,14 @@ import Chat from './components/Chat';
 import Settings from './components/Settings';
 import GraphView from './components/GraphView';
 import BentoGrid from './components/BentoGrid';
-import CanvasView from './components/CanvasView';
 import NotificationsPanel from './components/NotificationsPanel';
 import ShareModal from './components/ShareModal';
 import SharedNoteView from './components/SharedNoteView';
 import Login from './pages/Login';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, PenTool } from 'lucide-react';
+import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, Layout, MessageSquare, PanelLeftOpen, ChevronLeft, ChevronRight, Bell } from 'lucide-react';
+
+const BoardEditor = React.lazy(() => import('./components/BoardEditor'));
 import { useLanguage } from './contexts/LanguageContext';
 import { Note, Folder } from './types';
 import { api } from './api/client';
@@ -68,11 +69,17 @@ export default function App() {
   const [folders, setFolders] = useState<Folder[]>([]);
   const [unlockedFolders, setUnlockedFolders] = useState<Set<string>>(new Set());
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento' | 'canvas'>('preview');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento' | 'board'>('preview');
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isFocusMode, setIsFocusMode] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear());
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [smartFilter, setSmartFilter] = useState<string | null>(null);
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
@@ -120,11 +127,10 @@ export default function App() {
   useEffect(() => {
     if (token) {
       setIsLoading(true);
-      Promise.all([api.getNotes(), api.getFolders()]).then(([fetchedNotes, fetchedFolders]) => {
-        // Only set default notes if we got an empty array AND it's likely a first-time load
-        // For now, we'll trust the backend. If it's empty, it's empty.
+      Promise.all([api.getNotes(), api.getFolders(), api.getReminders()]).then(([fetchedNotes, fetchedFolders, fetchedReminders]) => {
         setNotes(fetchedNotes || []);
         setFolders(fetchedFolders || []);
+        setReminders(fetchedReminders || []);
         setIsLoading(false);
       }).catch(err => {
         console.error("Failed to fetch data", err);
@@ -168,8 +174,12 @@ export default function App() {
 
     setActiveNoteId(id);
     setShowSettings(false);
-    // Always switch to edit/preview when selecting a note
-    setViewMode(mode === 'edit' ? 'edit' : 'preview');
+    // Detect board notes and switch to board view
+    if (note.content && note.content.includes('<!-- board:')) {
+      setViewMode('board');
+    } else {
+      setViewMode(mode === 'edit' ? 'edit' : 'preview');
+    }
     setShowSearch(false);
     setIsMobileMenuOpen(false);
   };
@@ -235,6 +245,17 @@ export default function App() {
   const addFolder = (newFolder: Folder) => {
     setFolders(prev => [...prev, newFolder]);
     api.createFolder(newFolder);
+  };
+
+  const addBoard = () => {
+    const newNote: Note = {
+      id: `n${Date.now()}`,
+      title: `Board: ${t('common.newNote')}`,
+      content: '<!-- board:{"items":[]} -->',
+      permission: 'owner',
+    };
+    addNote(newNote);
+    setViewMode('board');
   };
 
   const deleteNote = (id: string) => {
@@ -332,20 +353,20 @@ export default function App() {
         />
       )}
 
-      {/* Sidebar - Hidden in Focus Mode, Responsive on Mobile */}
-      <div className={`
-        ${isFocusMode ? 'hidden' : 'flex'} 
-        ${isMobileMenuOpen ? 'fixed inset-y-0 left-0 z-50' : 'hidden md:flex'}
-      `}>
-        <Sidebar
-          notes={notes}
-          folders={folders}
-          unlockedFolders={unlockedFolders}
-          setUnlockedFolders={setUnlockedFolders}
-          activeNoteId={activeNoteId}
-          onSelectNote={handleNoteSelect}
-          onOpenSettings={() => { setShowSettings(true); setIsMobileMenuOpen(false); }}
-          onOpenSearch={() => { setShowSearch(true); setIsMobileMenuOpen(false); }}
+      {/* Sidebar - Animated slide in/out */}
+      {!isFocusMode && (
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out hidden md:block ${sidebarOpen ? 'w-60 opacity-100' : 'w-0 opacity-0'}`}
+          style={{ flexShrink: 0 }}>
+          <div className="w-60 h-full">
+            <Sidebar
+              notes={notes}
+              folders={folders}
+              unlockedFolders={unlockedFolders}
+              setUnlockedFolders={setUnlockedFolders}
+              activeNoteId={activeNoteId}
+              onSelectNote={handleNoteSelect}
+              onOpenSettings={() => { setShowSettings(true); setIsMobileMenuOpen(false); }}
+              onOpenSearch={() => { setShowSearch(true); setIsMobileMenuOpen(false); }}
           onLogout={handleLogout}
           onNotesChange={setNotes}
           onFoldersChange={setFolders}
@@ -360,9 +381,21 @@ export default function App() {
           onSmartFilter={setSmartFilter}
           onSwitchView={setViewMode}
           onSelectFolder={setSelectedFolderId}
+          onAddBoard={addBoard}
+          onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
         />
-      </div>
-      
+          </div>
+        </div>
+      )}
+
+      {!isFocusMode && !sidebarOpen && (
+        <button onClick={() => setSidebarOpen(true)}
+          className="fixed top-20 left-2 z-20 p-2 rounded-lg bg-background/80 backdrop-blur-sm border border-border/50 text-muted-foreground hover:text-foreground hover:bg-background transition-all duration-200 shadow-sm"
+          title="Show sidebar">
+          <PanelLeftOpen size={16} />
+        </button>
+      )}
+
       <main className="flex-1 flex flex-col relative border-r min-w-0 border-border/50">
         {/* Header Toggle & Mobile Controls - Moved to top center and slightly enlarged */}
         {!showSettings && (
@@ -410,18 +443,22 @@ export default function App() {
               <LayoutGrid size={16} />
             </button>
             <button
-              onClick={() => setViewMode('canvas')}
-              className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'canvas' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}
-              title={t('app.canvas')}
+              onClick={() => setViewMode('board')}
+              className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'board' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}
+              title="Board"
             >
-              <PenTool size={16} />
+              <Layout size={16} />
             </button>
           </div>
         )}
 
         {/* Notifications */}
         {!showSettings && (
-          <div className="absolute top-6 right-20 z-10">
+          <div className="absolute top-6 right-20 z-10 flex items-center gap-2">
+            <button onClick={() => setChatOpen(!chatOpen)} title={chatOpen ? 'Hide chat' : 'Show chat'}
+              className={`p-2 rounded-full transition-all duration-200 ${chatOpen ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}>
+              <MessageSquare size={16} />
+            </button>
             <NotificationsPanel onNoteClick={handleNoteSelect} />
           </div>
         )}
@@ -494,21 +531,6 @@ export default function App() {
                 })()}
               </div>
             </motion.div>
-          ) : viewMode === 'canvas' ? (
-            <motion.div
-              key="canvas"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="h-full w-full"
-            >
-              <CanvasView
-                notes={availableNotes}
-                activeNoteId={activeNoteId}
-                onNoteClick={handleNoteSelect}
-                onAddNote={(note) => { addNote(note); handleNoteSelect(note.id, 'edit'); }}
-              />
-            </motion.div>
           ) : viewMode === 'bento' ? (
             <motion.div
               key="bento"
@@ -531,36 +553,97 @@ export default function App() {
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0 }}
-              className="h-full w-full p-8 scroll-elegant"
+              className="h-full w-full px-8 pt-4 pb-8 scroll-elegant relative"
+              onClick={() => expandedDay && setExpandedDay(null)}
             >
-              <h2 className="font-serif text-3xl font-bold text-foreground mb-6">{t('calendar.title')}</h2>
+              <div className="flex items-center mb-6">
+                <h2 className="font-serif text-2xl font-bold text-foreground">{new Date(calYear, calMonth).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</h2>
+                <div className="flex items-center gap-1 ml-4">
+                  <button onClick={() => { setCalMonth(m => m === 0 ? 11 : m - 1); if (calMonth === 0) setCalYear(y => y - 1); setExpandedDay(null); }}
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><ChevronLeft size={16} /></button>
+                  <button onClick={() => { setCalMonth(m => m === 11 ? 0 : m + 1); if (calMonth === 11) setCalYear(y => y + 1); setExpandedDay(null); }}
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><ChevronRight size={16} /></button>
+                </div>
+              </div>
               <div className="grid grid-cols-7 gap-2">
                 {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => (
                   <div key={d} className="text-center text-xs font-medium text-muted-foreground py-2">{d}</div>
                 ))}
                 {(() => {
-                  const now = new Date();
-                  const firstDay = new Date(now.getFullYear(), now.getMonth(), 1).getDay();
-                  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+                  const firstDay = new Date(calYear, calMonth, 1).getDay();
+                  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
                   const cells = [];
                   for (let i = 0; i < (firstDay === 0 ? 6 : firstDay - 1); i++) cells.push(null);
                   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
                   return cells.map((day, i) => {
                     if (!day) return <div key={i} />;
-                    const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                     const dayNotes = notes.filter(n => (n.created_at || '').startsWith(dateStr) || (n.updated_at || '').startsWith(dateStr));
+                    const dayReminders = reminders.filter(r => (r.remind_at || '').startsWith(dateStr));
+                    const allItems = [...dayNotes.map(n => ({ type: 'note' as const, id: n.id, title: n.title })), ...dayReminders.map(r => ({ type: 'reminder' as const, id: r.id, noteId: r.note_id, title: r.message || notes.find(n => n.id === r.note_id)?.title || 'Напоминание', time: r.remind_at }))];
+                    const expanded = expandedDay === dateStr;
+                    const today = new Date();
+                    const isToday = today.getDate() === day && today.getMonth() === calMonth && today.getFullYear() === calYear;
                     return (
-                      <div key={i} className={`rounded-lg border p-2 min-h-[80px] ${dayNotes.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'}`}>
-                        <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
-                        {dayNotes.slice(0, 2).map(n => (
-                          <div key={n.id} onClick={() => { handleNoteSelect(n.id); setViewMode('preview'); }} className="text-[10px] truncate text-foreground/80 cursor-pointer hover:text-primary">{n.title}</div>
-                        ))}
-                        {dayNotes.length > 2 && <div className="text-[10px] text-muted-foreground">+{dayNotes.length - 2}</div>}
+                      <div key={i} className="relative">
+                        <div onClick={(e) => { e.stopPropagation(); if (!expanded && allItems.length > 0) setExpandedDay(expanded ? null : dateStr); }}
+                          className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-1 ring-primary/30' : dayReminders.length > 0 ? 'border-violet-500/80 bg-violet-200 ring-2 ring-violet-400/60 dark:bg-violet-950/20 dark:ring-violet-300/30' : allItems.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'} ${expanded ? 'shadow-lg' : ''}`}>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
+                          {allItems.slice(0, 2).map(item => (
+                            <div key={item.type + item.id} className="text-xs truncate text-foreground/80 flex items-center gap-1">
+                              {item.type === 'reminder' && <Bell size={8} className="text-amber-500 shrink-0" />}
+                              {item.title}
+                            </div>
+                          ))}
+                          {!expanded && allItems.length > 2 && (
+                            <div className="text-xs text-primary font-medium mt-0.5">+{allItems.length - 2}</div>
+                          )}
+                        </div>
+                        <AnimatePresence>
+                          {expanded && (
+                            <motion.div
+                              initial={{ opacity: 0, y: -4, scaleY: 0.8 }}
+                              animate={{ opacity: 1, y: 4, scaleY: 1 }}
+                              exit={{ opacity: 0, y: -4, scaleY: 0.8 }}
+                              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+                              className="absolute left-0 right-0 top-full z-50 bg-background border border-border/50 rounded-xl shadow-xl p-3 space-y-1"
+                              style={{ transformOrigin: 'top' }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <div className="text-xs font-medium text-muted-foreground mb-2">{day} — {allItems.length} элементов</div>
+                              {allItems.map(item => (
+                                <div key={item.type + item.id} onClick={() => { handleNoteSelect(item.type === 'reminder' ? item.noteId : item.id); setViewMode('preview'); setExpandedDay(null); }}
+                                  className="text-sm truncate text-foreground/80 cursor-pointer hover:text-primary hover:bg-muted/50 rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2">
+                                  {item.type === 'reminder' && <><Bell size={12} className="text-amber-500 shrink-0" /><span className="text-[10px] text-amber-500 shrink-0">{(item.time || '').slice(11, 16)}</span></>}
+                                  {item.title}
+                                </div>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
                       </div>
                     );
                   });
                 })()}
               </div>
+            </motion.div>
+          ) : viewMode === 'board' && activeNote ? (
+              <motion.div
+                  key={`board-${activeNote.id}`}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="h-full w-full"
+            >
+              <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-muted-foreground">Loading board...</div>}>
+                <BoardEditor
+                  content={activeNote.content || ''}
+                  title={activeNote.title || ''}
+                  onChange={(content) => updateNote(activeNote.id, { content })}
+                  onTitleChange={(title) => updateNote(activeNote.id, { title })}
+                  noteId={activeNote.id}
+                />
+              </Suspense>
             </motion.div>
           ) : activeNote ? (
             <motion.div 
@@ -598,10 +681,15 @@ export default function App() {
         </AnimatePresence>
       </main>
 
-      {/* Chat - Hidden in Focus Mode and on Mobile (unless toggled) */}
-      <div className={`${isFocusMode ? 'hidden' : 'hidden lg:flex'}`}>
-        <Chat notes={notes} folders={folders} unlockedFolders={unlockedFolders} activeNoteId={activeNoteId} onNoteClick={handleNoteSelect} api={api} />
-      </div>
+      {/* Chat - Animated slide in/out */}
+      {!isFocusMode && (
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out hidden lg:block ${chatOpen ? 'w-80 opacity-100' : 'w-0 opacity-0'}`}
+          style={{ flexShrink: 0 }}>
+          <div className="w-80 h-full">
+            <Chat notes={notes} folders={folders} unlockedFolders={unlockedFolders} activeNoteId={activeNoteId} onNoteClick={handleNoteSelect} api={api} />
+          </div>
+        </div>
+      )}
 
       {/* Global Search Modal */}
       <AnimatePresence>

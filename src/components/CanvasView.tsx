@@ -51,7 +51,7 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
       const rect = containerRef.current!.getBoundingClientRect();
       const x = (e.clientX - rect.left - pan.x) / zoom;
       const y = (e.clientY - rect.top - pan.y) / zoom;
-      const newNote: Note = { id: `n${Date.now()}`, title: 'New Note', content: '', permission: 'owner' } as Note;
+      const newNote: Note = { id: `n${Date.now()}`, title: t('canvas.newNote'), content: '', permission: 'owner' } as Note;
       setPositions(prev => [...prev, { id: newNote.id, x, y }]);
       onAddNote(newNote);
       return;
@@ -122,13 +122,13 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
       {/* Toolbar */}
       <div className="absolute top-4 left-4 z-30 flex flex-col gap-2">
         <div className="flex items-center gap-1 rounded-full glass-strong p-1 shadow-premium ring-1 ring-border/50">
-          <button onClick={() => setTool('select')} className={`p-2 rounded-full transition-colors ${tool === 'select' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title="Select & Drag">
+          <button onClick={() => setTool('select')} className={`p-2 rounded-full transition-colors ${tool === 'select' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title={t('canvas.selectDrag')}>
             <MousePointer2 size={14} />
           </button>
-          <button onClick={() => setTool('connect')} className={`p-2 rounded-full transition-colors ${tool === 'connect' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title="Connect">
+          <button onClick={() => setTool('connect')} className={`p-2 rounded-full transition-colors ${tool === 'connect' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title={t('canvas.connect')}>
             <ArrowRight size={14} />
           </button>
-          <button onClick={() => setTool('add')} className={`p-2 rounded-full transition-colors ${tool === 'add' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title="Add Note">
+          <button onClick={() => setTool('add')} className={`p-2 rounded-full transition-colors ${tool === 'add' ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'}`} title={t('canvas.addNote')}>
             <Plus size={14} />
           </button>
         </div>
@@ -137,7 +137,7 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
           <button onClick={() => setZoom(z => Math.max(0.2, z * 0.8))} className="p-2 rounded-full text-muted-foreground hover:text-foreground"><ZoomOut size={14} /></button>
           <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="p-2 rounded-full text-muted-foreground hover:text-foreground"><Maximize size={14} /></button>
         </div>
-        <button onClick={presenting ? () => setPresenting(false) : () => { setPresenting(true); setPresentIndex(0); }} className={`p-2 rounded-full shadow-premium ring-1 ring-border/50 transition-colors ${presenting ? 'bg-primary text-primary-foreground' : 'glass-strong text-muted-foreground hover:text-foreground'}`} title="Present">
+        <button onClick={presenting ? () => setPresenting(false) : () => { setPresenting(true); setPresentIndex(0); }} className={`p-2 rounded-full shadow-premium ring-1 ring-border/50 transition-colors ${presenting ? 'bg-primary text-primary-foreground' : 'glass-strong text-muted-foreground hover:text-foreground'}`} title={t('canvas.present')}>
           <Play size={14} />
         </button>
       </div>

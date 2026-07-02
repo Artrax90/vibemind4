@@ -1,12 +1,26 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { api } from '../api/client';
 import Editor from './Editor';
-import { Loader2, AlertCircle, FileText, Folder as FolderIcon, ChevronRight } from 'lucide-react';
+import { Loader2, AlertCircle, FileText, Folder as FolderIcon, ChevronRight, Sun, Moon } from 'lucide-react';
 import { Note } from '../types';
+
+const BoardEditor = lazy(() => import('./BoardEditor'));
 
 export default function SharedNoteView({ shareId }: { shareId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    return localStorage.getItem('theme') as 'light' | 'dark' || 'dark';
+  });
+
+  useEffect(() => {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    localStorage.setItem('theme', theme);
+  }, [theme]);
   const [shareData, setShareData] = useState<any>(null);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
 
@@ -110,24 +124,40 @@ export default function SharedNoteView({ shareId }: { shareId: string }) {
       )}
 
       <main className="flex-1 flex flex-col relative min-w-0">
-        <div className="absolute top-4 right-4 z-10 px-3 py-1 bg-secondary/80 backdrop-blur-sm text-secondary-foreground rounded-full text-[10px] font-medium border border-border/50">
-          {shareData.share.permission === 'write' ? 'Public Edit Access' : 'Public Read-Only'}
+        <div className="absolute top-4 right-4 z-10 flex items-center gap-2">
+          <button onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')} className="p-1.5 bg-secondary/80 backdrop-blur-sm text-secondary-foreground rounded-full border border-border/50 transition-colors hover:bg-secondary">
+            {theme === 'dark' ? <Sun size={14} /> : <Moon size={14} />}
+          </button>
+          <div className="px-3 py-1 bg-secondary/80 backdrop-blur-sm text-secondary-foreground rounded-full text-[10px] font-medium border border-border/50">
+            {shareData.share.permission === 'write' ? 'Public Edit Access' : 'Public Read-Only'}
+          </div>
         </div>
         
         {activeNote ? (
-          <Editor 
-            note={activeNote} 
-            allNotes={shareData.share.resource_type === 'folder' ? shareData.notes : []}
-            onUpdate={handleUpdate} 
-            onWikilinkClick={(title) => {
-              if (shareData.share.resource_type === 'folder') {
-                const target = shareData.notes.find((n: any) => n.title.toLowerCase() === title.toLowerCase());
-                if (target) setActiveNoteId(target.id);
-              }
-            }}
-            onTagClick={() => {}}
-            isPreview={shareData.share.permission !== 'write'}
-          />
+          (activeNote.content || '').includes('<!-- board:') ? (
+            <Suspense fallback={<div className="flex-1 flex items-center justify-center text-muted-foreground">Loading board...</div>}>
+              <BoardEditor
+                content={activeNote.content}
+                title={activeNote.title}
+                onChange={(content) => handleUpdate(activeNote.id, { content })}
+                readOnly={shareData.share.permission !== 'write'}
+              />
+            </Suspense>
+          ) : (
+            <Editor 
+              note={activeNote} 
+              allNotes={shareData.share.resource_type === 'folder' ? shareData.notes : []}
+              onUpdate={handleUpdate} 
+              onWikilinkClick={(title) => {
+                if (shareData.share.resource_type === 'folder') {
+                  const target = shareData.notes.find((n: any) => n.title.toLowerCase() === title.toLowerCase());
+                  if (target) setActiveNoteId(target.id);
+                }
+              }}
+              onTagClick={() => {}}
+              isPreview={shareData.share.permission !== 'write'}
+            />
+          )
         ) : (
           <div className="flex-1 flex items-center justify-center text-muted-foreground">
             Select a note to view

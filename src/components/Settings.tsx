@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Globe, Shield, User, Download, Upload, Cpu, Webhook, MessageSquare, Plus, Save, Trash2, CheckCircle, AlertCircle, Database, Edit2, Server, Lock, Key, Sun, Moon, Terminal, RefreshCw, Calendar } from 'lucide-react';
+import { X, Globe, Shield, User, Download, Upload, Cpu, Webhook, MessageSquare, Plus, Save, Trash2, CheckCircle, Check, AlertCircle, Database, Edit2, Server, Lock, Key, Sun, Moon, Terminal, RefreshCw, Calendar } from 'lucide-react';
 import CreateUserModal from './modals/CreateUserModal';
 import AddDBModal from './modals/AddDBModal';
 import { api, getAuthHeaders } from '../api/client';
@@ -166,6 +166,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   const [botStatus, setBotStatus] = useState<any>({ status: 'disconnected' });
   const [allBots, setAllBots] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [testingProviderId, setTestingProviderId] = useState<string | null>(null);
 
@@ -274,7 +275,6 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      // Call the new Python backend API
       await updateSettings({
         tg_token: botToken,
         tg_admin_id: adminId,
@@ -284,10 +284,10 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
         base_url: providers.find(p => p.isActive)?.baseUrl,
         model_name: providers.find(p => p.isActive)?.modelName
       });
-      alert(t('settings.saved'));
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 2000);
     } catch (e) {
       console.error(e);
-      alert(t('settings.saveFailed'));
     } finally {
       setIsSaving(false);
     }
@@ -316,7 +316,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
         alert(data.message || t('settings.connSuccess'));
       } else {
         setBotStatus({ status: 'error' });
-        alert(`${t('settings.connFailed')}${data.detail || 'Unknown error'}`);
+        alert(`${t('settings.connFailed')}${data.detail || t('settings.unknownError')}`);
       }
     } catch (error) {
       console.error('Network Error:', error);
@@ -345,7 +345,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
       if (response.ok && data.status === 'success') {
         alert(t('settings.proxySuccess'));
       } else {
-        alert(`${t('settings.proxyFailed')}${data.detail || 'Unknown error'}`);
+        alert(`${t('settings.proxyFailed')}${data.detail || t('settings.unknownError')}`);
       }
     } catch (e) {
       alert(t('settings.proxyReqFailed'));
@@ -396,7 +396,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
         alert(t('settings.connSuccess'));
       } else {
         setProviders(providers.map(p => p.id === provider.id ? { ...p, status: 'error' } : p));
-        alert(`${t('settings.connFailed')}${data.detail || data.message || 'Unknown error'}`);
+        alert(`${t('settings.connFailed')}${data.detail || data.message || t('settings.unknownError')}`);
       }
     } catch (error) {
       console.error('Test Provider Error:', error);
@@ -468,8 +468,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
       <div className="px-8 py-6 border-b border-border/50 flex items-center justify-between">
         <h2 className="font-serif text-2xl font-bold text-foreground">{t('settings.title')}</h2>
         <div className="flex items-center space-x-4">
-          <button onClick={handleSave} disabled={isSaving} className="flex items-center px-4 py-2 bg-primary text-primary-foreground rounded-xl shadow-premium hover:shadow-premium-lg hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50">
-            <Save size={16} className={`mr-2 ${isSaving ? 'animate-spin' : ''}`} /> {isSaving ? t('settings.saving') : t('settings.save')}
+          <button onClick={handleSave} disabled={isSaving} className={`flex items-center px-4 py-2 rounded-xl shadow-premium hover:shadow-premium-lg hover:-translate-y-0.5 transition-all duration-200 disabled:opacity-50 ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-primary text-primary-foreground'}`}>
+            {saveSuccess ? <><Check size={16} className="mr-2" /> {t('settings.saved')}</> : <><Save size={16} className={`mr-2 ${isSaving ? 'animate-spin' : ''}`} /> {isSaving ? t('settings.saving') : t('settings.save')}</>}
           </button>
           <button onClick={onClose} className="p-2 text-muted-foreground hover:text-foreground rounded-xl hover:bg-muted transition-colors">
             <X size={20} />

@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from '../api/client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell, CalendarPlus, Check } from 'lucide-react';
 import ReminderModal from './ReminderModal';
 import PublishModal from './PublishModal';
-import NoteCanvas from './NoteCanvas';
-import { PenTool } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useLanguage } from '../contexts/LanguageContext';
+import mermaid from 'mermaid';
+
+mermaid.initialize({ startOnLoad: false, theme: 'default' });
 
 const TAG_COLORS: Record<string, string> = {
   work: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
@@ -108,7 +109,6 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   const [showReminderModal, setShowReminderModal] = useState(false);
   const [publishSlug, setPublishSlug] = useState<string | null>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
-  const [canvasMode, setCanvasMode] = useState(false);
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -128,7 +128,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
     setIsSaving(true);
     const timer = setTimeout(() => {
       onUpdate(note.id, { content, title });
-      setIsSaving(false);
+      setTimeout(() => setIsSaving(false), 200);
     }, 1000);
 
     return () => clearTimeout(timer);
@@ -402,6 +402,9 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
         </div>
 
         <div className="flex items-center gap-2 shrink-0 ml-4">
+          <span className={`text-xs font-medium transition-all duration-500 ${isSaving ? 'text-amber-500' : 'text-emerald-500'}`}>
+            {isSaving ? 'Сохранение...' : 'Сохранено'}
+          </span>
           {!isReadOnly && (
             <button
               onClick={handleSummarize}
@@ -417,7 +420,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
             <button
               onClick={onShare}
               className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
-              title="Share"
+              title={t('editor.share')}
             >
               <Share2 size={18} />
             </button>
@@ -432,36 +435,42 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
           </button>
 
           <button
-            onClick={() => setCanvasMode(!canvasMode)}
-            className={`p-2 rounded-lg transition-colors ${canvasMode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-primary'}`}
-            title={t('editor.canvasMode')}
+            onClick={async () => {
+              const { api } = await import('../api/client');
+              const status = await api.getCalendarStatus();
+              if (!status.connected) {
+                alert(t('editor.calendarNotConnected') || 'Подключите Google Calendar в настройках');
+                return;
+              }
+              const now = new Date();
+              const later = new Date(now.getTime() + 60 * 60 * 1000);
+              await api.createCalendarEvent({
+                summary: note.title,
+                description: (note.content || '').substring(0, 500),
+                start_datetime: now.toISOString(),
+                end_datetime: later.toISOString()
+              });
+              alert(t('editor.calendarEventCreated') || 'Событие создано в Google Calendar!');
+            }}
+            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
+            title={t('editor.addToCalendar') || 'Добавить в календарь'}
           >
-            <PenTool size={18} />
+            <CalendarPlus size={18} />
           </button>
 
           {note.permission === 'owner' && (
             <button
               onClick={async () => {
-                const { api } = await import('../api/client');
-                const status = await api.getCalendarStatus();
-                if (!status.connected) {
-                  alert(t('editor.calendarNotConnected') || 'Подключите Google Calendar в настройках');
-                  return;
+                if ((note.content || '').includes('published:')) {
+                  const match = note.content.match(/<!-- published:([^ ]+)/);
+                  if (match) setPublishSlug(match[1]);
                 }
-                const now = new Date();
-                const later = new Date(now.getTime() + 60 * 60 * 1000);
-                await api.createCalendarEvent({
-                  summary: note.title,
-                  description: (note.content || '').substring(0, 500),
-                  start_datetime: now.toISOString(),
-                  end_datetime: later.toISOString()
-                });
-                alert(t('editor.calendarEventCreated') || 'Событие создано в Google Calendar!');
+                setShowPublishModal(true);
               }}
               className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
-              title={t('editor.addToCalendar') || 'Добавить в календарь'}
+              title={t('editor.publish') || 'Опубликовать'}
             >
-              <CalendarPlus size={18} />
+              <Globe size={18} />
             </button>
           )}
         </div>
@@ -506,25 +515,25 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
               <Code size={16} />
             </button>
             
-            {showCodeDropdown && (
-              <div className="absolute left-0 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-premium p-1 w-32 overflow-hidden">
-                {['python', 'javascript', 'bash', 'yaml', 'json', 'sql', 'markdown'].map(lang => (
+            <div className={`absolute left-0 top-full mt-1 z-50 transition-all duration-200 ease-in-out ${showCodeDropdown ? 'opacity-100 translate-y-0 pointer-events-auto' : 'opacity-0 -translate-y-2 pointer-events-none'}`}>
+              <div className="bg-popover border border-border rounded-xl shadow-premium p-1 w-32">
+                  {['python', 'javascript', 'bash', 'yaml', 'json', 'sql', 'markdown'].map(lang => (
+                    <button
+                      key={lang}
+                      onClick={() => insertCodeBlock(lang)}
+                      className="w-full text-left px-2 py-1 text-xs hover:bg-secondary rounded text-foreground capitalize"
+                    >
+                      {lang}
+                    </button>
+                  ))}
                   <button
-                    key={lang}
-                    onClick={() => insertCodeBlock(lang)}
-                    className="w-full text-left px-2 py-1 text-xs hover:bg-secondary rounded text-foreground capitalize"
+                    onClick={() => insertCodeBlock('')}
+                    className="w-full text-left px-2 py-1 text-xs hover:bg-secondary rounded text-muted-foreground border-t border-border/50 mt-1"
                   >
-                    {lang}
+                    {t('editor.plainText')}
                   </button>
-                ))}
-                <button
-                  onClick={() => insertCodeBlock('')}
-                  className="w-full text-left px-2 py-1 text-xs hover:bg-secondary rounded text-muted-foreground border-t border-border/50 mt-1"
-                >
-                  {t('editor.plainText')}
-                </button>
               </div>
-            )}
+            </div>
           </div>
 
           <button onClick={insertWikilinkBtn} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors font-bold text-xs" title={t('editor.wikilink')}>[[ ]]</button>
@@ -748,13 +757,6 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
         </div>
       )}
 
-      {/* Canvas mode overlay */}
-      {canvasMode && (
-        <div className="absolute inset-0 z-20 bg-background flex flex-col">
-          <NoteCanvas content={content} onChange={(c) => { setContent(c); onUpdate(note.id, { content: c }); }} readOnly={isReadOnly} />
-        </div>
-      )}
-
       <ReminderModal
         isOpen={showReminderModal}
         onClose={() => setShowReminderModal(false)}
@@ -769,6 +771,14 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
         onClose={() => setShowPublishModal(false)}
         slug={publishSlug}
         title={note.title}
+        isPublished={!!(note.content || '').includes('published:')}
+        onPublish={async (expiresHours: number) => {
+          const { api } = await import('../api/client');
+          const result = await api.publishNote(note.id, expiresHours);
+          if (result.slug) {
+            setPublishSlug(result.slug);
+          }
+        }}
       />
     </div>
   );

@@ -345,6 +345,7 @@ async def get_me(current_user: User = Depends(get_current_user)):
 # Note Endpoints
 @app.get("/api/notes")
 async def get_notes(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    import re
     # Get all folders for the current user
     user_folders = {f.id for f in db.query(Folder).filter(Folder.user_id == current_user.id).all()}
     
@@ -410,10 +411,21 @@ async def get_notes(db: Session = Depends(get_db), current_user: User = Depends(
                 folder_share_count = db.query(Share).filter(Share.resource_id == n.folderId, Share.owner_id == current_user.id).count()
                 is_shared_by_me = folder_share_count > 0
 
+        # Parse published expiration
+        published_expires_at = None
+        pub_match = re.search(r'<!-- published:[^>]*published_at:([\d-]+T[\d:]+)[^>]*expires:(\d+)', n.content or '')
+        if pub_match:
+            from datetime import datetime, timedelta
+            pub_time = datetime.fromisoformat(pub_match.group(1))
+            mins = int(pub_match.group(2))
+            published_expires_at = (pub_time + timedelta(minutes=mins)).isoformat()
+
         res.append({
             "id": n.id, "title": n.title, "content": n.content, "folderId": n.folderId,
             "isPinned": bool(n.isPinned), "isShared": is_shared, "ownerUsername": owner_name, 
             "permission": permission, "isSharedByMe": is_shared_by_me,
+            "isPublished": bool(n.content and 'published:' in n.content),
+            "publishedExpiresAt": published_expires_at,
             "updated_at": n.updated_at
         })
     return res
@@ -1519,83 +1531,245 @@ async def delete_reminder(reminder_id: str, db: Session = Depends(get_db), curre
 # ==================== PUBLISHING API ====================
 
 @app.post("/api/notes/{note_id}/publish")
-async def publish_note(note_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def publish_note(note_id: str, expires_hours: int = 0, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user.id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
 
-    slug = note.title.lower().replace(" ", "-").replace("/", "-")[:50]
-    # Store published slug in note content metadata
-    note.content = (note.content or '') + f"\n\n<!-- published:{slug} -->"
+    import uuid, re
+    from datetime import datetime, timedelta
+    slug = uuid.uuid4().hex[:12]
+    now = datetime.now().isoformat()
+    note.content = re.sub(r'\n*<!-- published:.*?-->\n*', '', note.content or '')
+    expires_part = f' expires:{expires_hours}' if expires_hours > 0 else ''
+    note.content = (note.content or '') + f"\n\n<!-- published:{slug} published_at:{now}{expires_part} -->"
     db.commit()
 
     return {
         "slug": slug,
         "url": f"/api/published/{slug}",
         "title": note.title,
-        "content": note.content
+        "expires_minutes": expires_hours,
+        "expires_at": (datetime.now() + timedelta(minutes=expires_hours)).isoformat() if expires_hours > 0 else None
     }
 
 @app.get("/api/published/{slug}")
 async def get_published_note(slug: str, db: Session = Depends(get_db)):
-    # Only serve notes that have been explicitly published
+    import re
+    from datetime import datetime, timedelta
+    from fastapi.responses import HTMLResponse
+
     notes = db.query(Note).filter(Note.content.ilike(f"%published:{slug}%")).all()
     note = None
     for n in notes:
-        if n.title.lower().replace(" ", "-").replace("/", "-")[:50] == slug:
+        if re.search(rf'<!-- published:{re.escape(slug)}[\s]', n.content or ''):
             note = n
             break
 
     if not note:
         raise HTTPException(status_code=404, detail="Note not found or not published")
 
+    # Check expiration
+    expires_match = re.search(rf'<!-- published:{re.escape(slug)}[^>]*expires:(\d+)', note.content or '')
+    if expires_match:
+        minutes = int(expires_match.group(1))
+        pub_match = re.search(rf'<!-- published:{re.escape(slug)}[^>]*published_at:([\d-]+T[\d:]+)', note.content or '')
+        if pub_match:
+            pub_time = datetime.fromisoformat(pub_match.group(1))
+            if datetime.now() > pub_time + timedelta(minutes=minutes):
+                return HTMLResponse(content='<!DOCTYPE html><html><body style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:system-ui;background:#F7F7F5;color:#666"><h2>This page has expired</h2></body></html>')
+
+    board_match = re.search(r'<!-- board:(.*?) -->', note.content or '', re.DOTALL)
+    is_board = bool(board_match)
+    board_data = board_match.group(1) if board_match else None
+
     safe_content = (note.content or '').replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
     description = (note.content or '')[:160]
 
-    html = """<!DOCTYPE html>
+    if is_board and board_data:
+        safe_board_data = board_data.replace('</script', '<\\/script')
+        html = """<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>""" + note.title + """</title>
-    <meta name="description" content=\"""" + description + """\">
+    <title>BOARD_TITLE</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Geist', system-ui, sans-serif; background: #1a1a2e; overflow: hidden; transition: background 0.3s; }
+        body.light { background: #F7F7F5; }
+        h1 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.5rem; padding: 12px 20px; background: white; border-bottom: 1px solid #e8e0d4; transition: background 0.3s, color 0.3s; }
+        body.light h1 { background: #fafafa; color: #333; border-bottom-color: #e8e0d4; }
+        body.light { color: #333; }
+        body.dark { color: #e0e0e0; }
+        body.dark h1 { background: #2a2a3e; color: #e0e0e0; border-bottom-color: #3a3a4e; }
+        #board { width: 100vw; height: calc(100vh - 52px); overflow: hidden; position: relative; cursor: grab; }
+        #board.grabbing { cursor: grabbing; }
+        #theme-toggle { position: fixed; top: 14px; right: 16px; z-index: 10; background: rgba(0,0,0,0.1); border: none; border-radius: 50%; width: 32px; height: 32px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s; }
+        body.light #theme-toggle { background: rgba(0,0,0,0.05); }
+        body.dark #theme-toggle { background: rgba(255,255,255,0.1); }
+        body.dark #theme-toggle:hover { background: rgba(255,255,255,0.2); }
+        #zoom-info { position: fixed; bottom: 12px; right: 16px; z-index: 10; font-size: 11px; color: #999; background: rgba(0,0,0,0.05); padding: 4px 8px; border-radius: 6px; }
+        body.light #zoom-info { color: #666; background: rgba(0,0,0,0.03); }
+        body.dark #zoom-info { color: #888; background: rgba(255,255,255,0.05); }
+    </style>
+</head>
+<body class="dark">
+    <h1>BOARD_TITLE</h1>
+    <button id="theme-toggle" onclick="toggleTheme()"><span id="theme-icon">☀️</span></button>
+    <div id="zoom-info">100%</div>
+    <div id="board"></div>
+    <script type="application/json" id="board-data">BOARD_DATA</script>
+    <script>
+        const boardData = JSON.parse(document.getElementById('board-data').textContent);
+        const board = document.getElementById('board');
+        const items = boardData.items || [];
+        let panX = 0, panY = 0, zoomLevel = 1, isDragging = false, startX, startY;
+        const zoomInfo = document.getElementById('zoom-info');
+
+        function toggleTheme() {
+            const b = document.body;
+            const icon = document.getElementById('theme-icon');
+            b.classList.toggle('light');
+            b.classList.toggle('dark');
+            icon.textContent = b.classList.contains('light') ? '\\u{1F319}' : '\\u2600\\uFE0F';
+            draw();
+        }
+
+        function draw() {
+            board.innerHTML = '';
+            const c = document.createElement('canvas');
+            c.width = board.clientWidth * 2; c.height = board.clientHeight * 2;
+            c.style.width = '100%'; c.style.height = '100%';
+            board.appendChild(c);
+            const ctx2 = c.getContext('2d');
+            ctx2.scale(2, 2);
+            const cw = board.clientWidth, ch = board.clientHeight;
+            const isDark = document.body.classList.contains('dark');
+            ctx2.fillStyle = isDark ? '#1a1a2e' : '#F7F7F5';
+            ctx2.fillRect(0, 0, cw, ch);
+
+            if (items.length === 0) return;
+
+            let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+            items.forEach(i=>{
+                if(i.type==='line'){
+                    if(i.fromId&&i.toId){const f=items.find(x=>x.id===i.fromId),t=items.find(x=>x.id===i.toId);if(f&&t){minX=Math.min(minX,f.x,t.x);minY=Math.min(minY,f.y,t.y);maxX=Math.max(maxX,f.x+f.w,t.x+t.w);maxY=Math.max(maxY,f.y+f.h,t.y+t.h);}}
+                    else{[i.x||0,(i.x2||i.x||0)].forEach(v=>{minX=Math.min(minX,v);maxX=Math.max(maxX,v);});[i.y||0,(i.y2||i.y||0)].forEach(v=>{minY=Math.min(minY,v);maxY=Math.max(maxY,v);});}
+                }else if(i.type!=='frame'){minX=Math.min(minX,i.x);minY=Math.min(minY,i.y);maxX=Math.max(maxX,i.x+(i.w||0));maxY=Math.max(maxY,i.y+(i.h||0));}
+            });
+
+            const pad=60, bw=maxX-minX+pad*2, bh=maxY-minY+pad*2;
+            const S=Math.min(cw/bw, ch/bh)*0.95*zoomLevel;
+            const OX=(-minX+pad)*S+panX, OY=(-minY+pad)*S+panY;
+
+            ctx2.fillStyle = isDark ? '#2a2a3e' : '#ddd';
+            for(let x=0;x<cw;x+=24)for(let y=0;y<ch;y+=24){ctx2.beginPath();ctx2.arc(x,y,1,0,Math.PI*2);ctx2.fill();}
+
+            function edgePoint(item,tx,ty){
+                const cx=item.x+item.w/2,cy=item.y+item.h/2,dx=tx-cx,dy=ty-cy;
+                if(dx===0&&dy===0)return{x:cx*S+OX,y:cy*S+OY};
+                if(item.type==='circle'){const dist=Math.sqrt(dx*dx+dy*dy);return{x:(cx+(dx/dist)*(item.w/2))*S+OX,y:(cy+(dy/dist)*(item.h/2))*S+OY};}
+                const hw=item.w/2,hh=item.h/2,adx=Math.abs(dx),ady=Math.abs(dy);
+                if(adx*hh>ady*hw)return{x:(cx+(dx>0?hw:-hw))*S+OX,y:(cy+(dy*hw)/adx)*S+OY};
+                return{x:(cx+(dx*hh)/ady)*S+OX,y:(cy+(dy>0?hh:-hh))*S+OY};
+            }
+
+            const clipPaths={diamond:(c,w,h)=>{c.moveTo(w/2,0);c.lineTo(w,h/2);c.lineTo(w/2,h);c.lineTo(0,h/2);c.closePath();},triangle:(c,w,h)=>{c.moveTo(w/2,0);c.lineTo(0,h);c.lineTo(w,h);c.closePath();},hexagon:(c,w,h)=>{c.moveTo(w*.25,0);c.lineTo(w*.75,0);c.lineTo(w,h/2);c.lineTo(w*.75,h);c.lineTo(w*.25,h);c.lineTo(0,h/2);c.closePath();},star:(c,w,h)=>{for(let i=0;i<5;i++){const a1=(i*72-90)*Math.PI/180,a2=((i*72+36)-90)*Math.PI/180;c.lineTo(w/2+(w/2)*Math.cos(a1),h/2+(h/2)*Math.sin(a1));c.lineTo(w/2+(w*.2)*Math.cos(a2),h/2+(h*.2)*Math.sin(a2));}c.closePath();},parallelogram:(c,w,h)=>{c.moveTo(w*.2,0);c.lineTo(w,0);c.lineTo(w*.8,h);c.lineTo(0,h);c.closePath();}};
+
+            items.filter(i=>i.type==='line').forEach(i=>{
+                let x1,y1,x2,y2;
+                if(i.fromId&&i.toId){const f=items.find(x=>x.id===i.fromId),t=items.find(x=>x.id===i.toId);if(f&&t){const a=edgePoint(f,t.x+t.w/2,t.y+t.h/2);const b=edgePoint(t,f.x+f.w/2,f.y+f.h/2);x1=a.x;y1=a.y;x2=b.x;y2=b.y;}else return;}
+                else{x1=(i.x)*S+OX;y1=(i.y)*S+OY;x2=((i.x2||i.x))*S+OX;y2=((i.y2||i.y))*S+OY;}
+                ctx2.strokeStyle=i.color||'#333';ctx2.lineWidth=3;ctx2.lineCap='round';
+                ctx2.beginPath();ctx2.moveTo(x1,y1);ctx2.lineTo(x2,y2);ctx2.stroke();
+                const ddx=x2-x1,ddy=y2-y1,len=Math.sqrt(ddx*ddx+ddy*ddy)||1;
+                const ux=ddx/len,uy=ddy/len,px=-uy,py=ux;
+                ctx2.fillStyle=i.color||'#333';ctx2.beginPath();
+                ctx2.moveTo(x2,y2);ctx2.lineTo(x2-ux*10+px*5,y2-uy*10+py*5);ctx2.lineTo(x2-ux*10-px*5,y2-uy*10-py*5);ctx2.closePath();ctx2.fill();
+            });
+
+            function drawShape(i){
+                const x=i.x*S+OX, y=i.y*S+OY, w=i.w*S, h=i.h*S;
+                ctx2.save();ctx2.translate(x,y);
+                const clip=clipPaths[i.type];
+                if(clip){ctx2.beginPath();clip(ctx2,w,h);ctx2.fillStyle=i.color||'#ddd';ctx2.fill();ctx2.clip();}
+                else if(i.type==='circle'){ctx2.beginPath();ctx2.ellipse(w/2,h/2,w/2,h/2,0,0,Math.PI*2);ctx2.fillStyle=i.color||'#ddd';ctx2.fill();}
+                else if(i.type==='image'&&i.src){
+                    const img=new Image();
+                    img.onload=()=>{ctx2.drawImage(img,0,0,w,h);drawTxt(i,w,h);ctx2.restore();};
+                    img.onerror=()=>{ctx2.fillStyle=i.color||'#ddd';ctx2.beginPath();ctx2.roundRect(0,0,w,h,8);ctx2.fill();drawTxt(i,w,h);ctx2.restore();};
+                    img.src=i.src;return;
+                }else{ctx2.fillStyle=i.color||'#ddd';const br=i.type==='rounded'?16:8;ctx2.beginPath();ctx2.roundRect(0,0,w,h,br);ctx2.fill();}
+                drawTxt(i,w,h);ctx2.restore();
+            }
+            function drawTxt(i,w,h){if(!i.text)return;ctx2.fillStyle=i.textColor||'#1a1a1a';const fs=(i.fontSize||14)*S;ctx2.font=(i.bold?'bold ':'')+(i.italic?'italic ':'')+fs+'px '+(i.fontFamily||'Arial');ctx2.textAlign='center';ctx2.textBaseline='middle';const lines=i.text.split('\\n');const lh=fs*1.3;const sy=(h-lines.length*lh)/2+lh/2;lines.forEach((l,li)=>ctx2.fillText(l,w/2,sy+li*lh));}
+            items.filter(i=>i.type!=='line'&&i.type!=='curve'&&i.type!=='frame').forEach(i=>drawShape(i));
+
+            zoomInfo.textContent = Math.round(zoomLevel*100)+'%';
+        }
+
+        board.addEventListener('mousedown', e => { isDragging = true; startX = e.clientX - panX; startY = e.clientY - panY; board.classList.add('grabbing'); });
+        window.addEventListener('mousemove', e => { if (!isDragging) return; panX = e.clientX - startX; panY = e.clientY - startY; draw(); });
+        window.addEventListener('mouseup', () => { isDragging = false; board.classList.remove('grabbing'); });
+        board.addEventListener('wheel', e => { e.preventDefault(); zoomLevel *= e.deltaY > 0 ? 0.9 : 1.1; zoomLevel = Math.max(0.2, Math.min(3, zoomLevel)); draw(); }, {passive: false});
+        let lastTouchDist = 0;
+        board.addEventListener('touchstart', e => { if(e.touches.length===1){isDragging=true;startX=e.touches[0].clientX-panX;startY=e.touches[0].clientY-panY;} if(e.touches.length===2){lastTouchDist=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);} });
+        board.addEventListener('touchmove', e => { e.preventDefault(); if(e.touches.length===1&&isDragging){panX=e.touches[0].clientX-startX;panY=e.touches[0].clientY-startY;draw();} if(e.touches.length===2){const d=Math.hypot(e.touches[0].clientX-e.touches[1].clientX,e.touches[0].clientY-e.touches[1].clientY);zoomLevel*=d/lastTouchDist;zoomLevel=Math.max(0.2,Math.min(3,zoomLevel));lastTouchDist=d;draw();} }, {passive: false});
+        board.addEventListener('touchend', () => { isDragging = false; });
+
+        requestAnimationFrame(() => draw());
+    </script>
+</body>
+</html>"""
+        html = html.replace('BOARD_TITLE', note.title).replace('BOARD_DATA', safe_board_data)
+    else:
+        html = f"""<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{note.title}</title>
+    <meta name="description" content="{description}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Geist', system-ui, sans-serif; min-height: 100vh; padding: 2rem; background: #F7F7F5; color: #333; line-height: 1.7; }
-        article { width: 100%; }
-        h1 { font-family: 'Instrument Serif', Georgia, serif; font-size: 3rem; margin-bottom: 1.5rem; line-height: 1.1; }
-        h2 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 2rem; margin-bottom: 0.75rem; }
-        h3 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.3rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
-        p { margin-bottom: 1rem; font-size: 1.05rem; }
-        pre { background: #1e1e2d; color: #e2e8f0; padding: 1.25rem; border-radius: 0.75rem; overflow-x: auto; margin: 1rem 0; }
-        code { font-family: 'Geist Mono', monospace; font-size: 0.9rem; }
-        p code { background: #e8e0d4; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.85rem; }
-        blockquote { border-left: 3px solid #7C5CFF; padding: 0.75rem 1rem; margin: 1rem 0; color: #666; background: #f0eef8; border-radius: 0 0.5rem 0.5rem 0; }
-        img { max-width: 100%; border-radius: 0.75rem; margin: 1rem 0; }
-        a { color: #7C5CFF; text-decoration: none; }
-        a:hover { text-decoration: underline; }
-        ul, ol { margin: 1rem 0; padding-left: 1.5rem; }
-        li { margin-bottom: 0.5rem; }
-        hr { border: none; border-top: 1px solid #e8e0d4; margin: 2rem 0; }
-        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
-        th, td { padding: 0.75rem 1rem; border-bottom: 1px solid #e8e0d4; text-align: left; }
-        th { font-weight: 600; background: #f0eef8; }
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: 'Geist', system-ui, sans-serif; min-height: 100vh; padding: 2rem; background: #F7F7F5; color: #333; line-height: 1.7; }}
+        article {{ width: 100%; }}
+        h1 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 3rem; margin-bottom: 1.5rem; line-height: 1.1; }}
+        h2 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 2rem; margin-bottom: 0.75rem; }}
+        h3 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 1.3rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }}
+        p {{ margin-bottom: 1rem; font-size: 1.05rem; }}
+        pre {{ background: #1e1e2d; color: #e2e8f0; padding: 1.25rem; border-radius: 0.75rem; overflow-x: auto; margin: 1rem 0; }}
+        code {{ font-family: 'Geist Mono', monospace; font-size: 0.9rem; }}
+        p code {{ background: #e8e0d4; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.85rem; }}
+        blockquote {{ border-left: 3px solid #7C5CFF; padding: 0.75rem 1rem; margin: 1rem 0; color: #666; background: #f0eef8; border-radius: 0 0.5rem 0.5rem 0; }}
+        img {{ max-width: 100%; border-radius: 0.75rem; margin: 1rem 0; }}
+        a {{ color: #7C5CFF; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        ul, ol {{ margin: 1rem 0; padding-left: 1.5rem; }}
+        li {{ margin-bottom: 0.5rem; }}
+        hr {{ border: none; border-top: 1px solid #e8e0d4; margin: 2rem 0; }}
+        table {{ width: 100%; border-collapse: collapse; margin: 1rem 0; }}
+        th, td {{ padding: 0.75rem 1rem; border-bottom: 1px solid #e8e0d4; text-align: left; }}
+        th {{ font-weight: 600; background: #f0eef8; }}
     </style>
 </head>
 <body>
     <article>
-        <h1>""" + note.title + """</h1>
+        <h1>{note.title}</h1>
         <div id="content"></div>
     </article>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
-        document.getElementById('content').innerHTML = marked.parse(`""" + safe_content + """`);
+        document.getElementById('content').innerHTML = marked.parse(`{safe_content}`);
     </script>
 </body>
 </html>"""
-    from fastapi.responses import HTMLResponse
+        html = html.replace('BOARD_TITLE', note.title).replace('BOARD_DATA', safe_board_data)
     return HTMLResponse(content=html)
 
 # ==================== GOOGLE CALENDAR API ====================

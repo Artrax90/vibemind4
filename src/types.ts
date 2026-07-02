@@ -8,6 +8,8 @@ export type Note = {
   isPinned?: boolean;
   isShared?: boolean;
   isSharedByMe?: boolean;
+  isPublished?: boolean;
+  publishedExpiresAt?: string | null;
   ownerUsername?: string;
 };
 
