@@ -442,13 +442,6 @@ export default function App() {
             >
               <LayoutGrid size={16} />
             </button>
-            <button
-              onClick={() => setViewMode('board')}
-              className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'board' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}
-              title="Board"
-            >
-              <Layout size={16} />
-            </button>
           </div>
         )}
 

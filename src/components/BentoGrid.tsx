@@ -1,6 +1,6 @@
 import React from 'react';
 import { Note, Folder } from '../types';
-import { Clock, Star } from 'lucide-react';
+import { Clock, Star, GripVertical } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 type BentoGridProps = {
@@ -84,6 +84,34 @@ function extractExcerpt(content: string, maxLen: number = 80): string {
     .replace(/\n+/g, ' ')
     .trim()
     .slice(0, maxLen);
+}
+
+function getOrderKey(folderId?: string): string {
+  return `bento_order_${folderId || 'all'}`;
+}
+
+function loadOrder(folderId?: string): string[] {
+  try {
+    const raw = localStorage.getItem(getOrderKey(folderId));
+    return raw ? JSON.parse(raw) : [];
+  } catch { return []; }
+}
+
+function saveOrder(ids: string[], folderId?: string) {
+  localStorage.setItem(getOrderKey(folderId), JSON.stringify(ids));
+}
+
+function sortNotesByOrder(notes: Note[], folderId?: string): Note[] {
+  const order = loadOrder(folderId);
+  if (order.length === 0) return notes;
+  const byId = new Map(notes.map(n => [n.id, n]));
+  const sorted: Note[] = [];
+  for (const id of order) {
+    const note = byId.get(id);
+    if (note) { sorted.push(note); byId.delete(id); }
+  }
+  for (const note of byId.values()) sorted.push(note);
+  return sorted;
 }
 
 function BoardMiniPreview({ items, dark }: { items: any[]; dark: boolean }) {
@@ -175,14 +203,22 @@ function EmbedBadge({ embed }: { embed: { type: string; id: string; thumb?: stri
 export default function BentoGrid({ notes, folders, activeNoteId, onNoteClick, folderId }: BentoGridProps) {
   const { t } = useLanguage();
   const [isDark, setIsDark] = React.useState(() => document.documentElement.classList.contains('dark'));
+  const [dragIdx, setDragIdx] = React.useState<number | null>(null);
+  const [overIdx, setOverIdx] = React.useState<number | null>(null);
+  const [orderVersion, setOrderVersion] = React.useState(0);
+
   React.useEffect(() => {
     const obs = new MutationObserver(() => setIsDark(document.documentElement.classList.contains('dark')));
     obs.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
     return () => obs.disconnect();
   }, []);
-  const filteredNotes = folderId
-    ? notes.filter(n => n.folderId === folderId)
-    : notes;
+
+  const filteredNotes = React.useMemo(() => {
+    const base = folderId
+      ? notes.filter(n => n.folderId === folderId)
+      : notes;
+    return sortNotesByOrder(base, folderId);
+  }, [notes, folderId, orderVersion]);
 
   if (filteredNotes.length === 0) {
     return (
@@ -191,6 +227,42 @@ export default function BentoGrid({ notes, folders, activeNoteId, onNoteClick, f
       </div>
     );
   }
+
+  const handleDragStart = (e: React.DragEvent, idx: number) => {
+    setDragIdx(idx);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', String(idx));
+    const el = e.currentTarget as HTMLElement;
+    el.style.opacity = '0.5';
+  };
+
+  const handleDragEnd = (e: React.DragEvent) => {
+    (e.currentTarget as HTMLElement).style.opacity = '1';
+    setDragIdx(null);
+    setOverIdx(null);
+  };
+
+  const handleDragOver = (e: React.DragEvent, idx: number) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragIdx !== null && dragIdx !== idx) {
+      setOverIdx(idx);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent, dropIdx: number) => {
+    e.preventDefault();
+    if (dragIdx === null || dragIdx === dropIdx) return;
+
+    const newNotes = [...filteredNotes];
+    const [moved] = newNotes.splice(dragIdx, 1);
+    newNotes.splice(dropIdx, 0, moved);
+
+    saveOrder(newNotes.map(n => n.id), folderId);
+    setOrderVersion(v => v + 1);
+    setDragIdx(null);
+    setOverIdx(null);
+  };
 
   return (
     <div className="p-6 h-full overflow-y-auto scroll-elegant">
@@ -212,12 +284,18 @@ export default function BentoGrid({ notes, folders, activeNoteId, onNoteClick, f
             : extractExcerpt(note.content || '');
           const sizeClass = getNoteSize(i, filteredNotes.length);
           const bgColor = getWarmColor(i, isDark);
+          const isDragOver = overIdx === i && dragIdx !== null && dragIdx !== i;
 
           return (
             <div
               key={note.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, i)}
+              onDragEnd={handleDragEnd}
+              onDragOver={(e) => handleDragOver(e, i)}
+              onDrop={(e) => handleDrop(e, i)}
               onClick={() => onNoteClick(note.id)}
-              className={`${sizeClass} group relative rounded-2xl overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-premium-lg ${activeNoteId === note.id ? `ring-2 ring-primary ${isDark ? 'ring-offset-[#1a1a2e]' : 'ring-offset-2'}` : isDark ? 'shadow-[0_2px_12px_rgba(0,0,0,0.4)]' : 'shadow-premium'}`}
+              className={`${sizeClass} group relative rounded-2xl overflow-hidden cursor-grab active:cursor-grabbing transition-all duration-300 hover:-translate-y-1 hover:shadow-premium-lg ${isDragOver ? 'ring-2 ring-primary scale-[1.02]' : ''} ${activeNoteId === note.id ? `ring-2 ring-primary ${isDark ? 'ring-offset-[#1a1a2e]' : 'ring-offset-2'}` : isDark ? 'shadow-[0_2px_12px_rgba(0,0,0,0.4)]' : 'shadow-premium'}`}
             >
               {/* Background */}
               {embed ? (
@@ -238,6 +316,11 @@ export default function BentoGrid({ notes, folders, activeNoteId, onNoteClick, f
               ) : (
                 <div className={`absolute inset-0 ${bgColor}`} />
               )}
+
+              {/* Drag handle */}
+              <div className="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
+                <GripVertical size={16} className="text-white/60 drop-shadow" />
+              </div>
 
               {/* Content overlay */}
               <div className="absolute inset-0 p-4 flex flex-col justify-between">
