@@ -9,10 +9,11 @@ type PublishModalProps = {
   slug: string | null;
   title: string;
   onPublish?: (expiresMinutes: number) => void;
+  onUnpublish?: () => void;
   isPublished?: boolean;
 };
 
-export default function PublishModal({ isOpen, onClose, slug, title, onPublish, isPublished }: PublishModalProps) {
+export default function PublishModal({ isOpen, onClose, slug, title, onPublish, onUnpublish, isPublished }: PublishModalProps) {
   const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -94,7 +95,7 @@ export default function PublishModal({ isOpen, onClose, slug, title, onPublish, 
               </div>
             </div>
 
-            {!slug && onPublish && (
+            {onPublish && (
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
                   <Clock size={12} /> {t('publish.expiresIn')}
@@ -139,23 +140,32 @@ export default function PublishModal({ isOpen, onClose, slug, title, onPublish, 
             </p>
           </div>
 
-          <div className="px-5 py-3 border-t border-border/50 flex justify-end gap-2">
-            <button onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground rounded-xl hover:bg-muted transition-colors">
-              {t('common.close') || 'Close'}
-            </button>
-            {!slug && onPublish ? (
-              <button onClick={handlePublish} disabled={publishing}
-                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-xl shadow-premium hover:shadow-premium-lg transition-all disabled:opacity-50">
-                <Globe size={14} />
-                {publishing ? t('publish.publishing') : t('publish.publish')}
+          <div className="px-5 py-3 border-t border-border/50 flex flex-wrap items-center gap-2 justify-between">
+            {slug && onUnpublish && (
+              <button onClick={() => { onUnpublish(); onClose(); }}
+                className="px-3 py-1.5 text-xs text-red-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg transition-colors">
+                {t('publish.unpublish') || 'Unpublish'}
               </button>
-            ) : slug ? (
-              <a href={url} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-xl shadow-premium hover:shadow-premium-lg transition-all">
-                <ExternalLink size={14} />
-                {t('publish.open') || 'Open'}
-              </a>
-            ) : null}
+            )}
+            <div className="flex items-center gap-2 ml-auto">
+              <button onClick={onClose} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground rounded-xl hover:bg-muted transition-colors">
+                {t('common.close') || 'Close'}
+              </button>
+              {slug && (
+                <a href={url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-muted text-foreground rounded-xl hover:bg-muted/80 transition-all">
+                  <ExternalLink size={14} />
+                  {t('publish.open') || 'Open'}
+                </a>
+              )}
+              {onPublish && (
+                <button onClick={handlePublish} disabled={publishing}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm bg-primary text-primary-foreground rounded-xl shadow-premium hover:shadow-premium-lg transition-all disabled:opacity-50">
+                  <Globe size={14} />
+                  {publishing ? t('publish.publishing') : slug ? (t('publish.republish') || 'Republish') : t('publish.publish')}
+                </button>
+              )}
+            </div>
           </div>
         </motion.div>
       </div>

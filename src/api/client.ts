@@ -607,5 +607,16 @@ export const api = {
     } catch (e) {
       return { slug: null };
     }
+  },
+  async unpublishNote(noteId: string) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/notes/${noteId}/unpublish`, {
+        method: 'POST',
+        headers: getAuthHeaders()
+      });
+      return await handleResponse(res, { ok: false });
+    } catch (e) {
+      return { ok: false };
+    }
   }
 };

@@ -759,6 +759,10 @@ export default function BoardEditor({ content, title: boardTitle, onChange, onTi
           const { api } = await import('../api/client');
           const result = await api.publishNote(noteId!, expiresHours);
           if (result.slug) { setPublishSlug(result.slug); setIsPublished(true); }
+        }, onUnpublish: async () => {
+          const { api } = await import('../api/client');
+          await api.unpublishNote(noteId!);
+          setPublishSlug(null); setIsPublished(false);
         } } : {})}
       />}
       {presenting >= 0 && (() => {

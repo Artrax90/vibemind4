@@ -1553,6 +1553,17 @@ async def publish_note(note_id: str, expires_hours: int = 0, db: Session = Depen
         "expires_at": (datetime.now() + timedelta(minutes=expires_hours)).isoformat() if expires_hours > 0 else None
     }
 
+@app.post("/api/notes/{note_id}/unpublish")
+async def unpublish_note(note_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user.id).first()
+    if not note:
+        raise HTTPException(status_code=404, detail="Note not found")
+
+    import re
+    note.content = re.sub(r'\n*<!-- published:.*?-->\n*', '', note.content or '')
+    db.commit()
+    return {"ok": True}
+
 @app.get("/api/published/{slug}")
 async def get_published_note(slug: str, db: Session = Depends(get_db)):
     import re
@@ -1583,7 +1594,7 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     is_board = bool(board_match)
     board_data = board_match.group(1) if board_match else None
 
-    safe_content = (note.content or '').replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${')
+    safe_content = (note.content or '').replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${').replace('\n', '\\n')
     description = (note.content or '')[:160]
 
     if is_board and board_data:
@@ -1628,6 +1639,7 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
         const items = boardData.items || [];
         let panX = 0, panY = 0, zoomLevel = 1, isDragging = false, startX, startY;
         const zoomInfo = document.getElementById('zoom-info');
+        const imageCache = {};
 
         function toggleTheme() {
             const b = document.body;
@@ -1691,22 +1703,32 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
                 ctx2.moveTo(x2,y2);ctx2.lineTo(x2-ux*10+px*5,y2-uy*10+py*5);ctx2.lineTo(x2-ux*10-px*5,y2-uy*10-py*5);ctx2.closePath();ctx2.fill();
             });
 
-            function drawShape(i){
+            function drawTxt(i,w,h){if(!i.text)return;ctx2.fillStyle=i.textColor||'#1a1a1a';const fs=(i.fontSize||14)*S;ctx2.font=(i.bold?'bold ':'')+(i.italic?'italic ':'')+fs+'px '+(i.fontFamily||'Arial');ctx2.textAlign='center';ctx2.textBaseline='middle';const lines=i.text.split('\\n');const lh=fs*1.3;const sy=(h-lines.length*lh)/2+lh/2;lines.forEach((l,li)=>ctx2.fillText(l,w/2,sy+li*lh));}
+
+            items.filter(i=>i.type!=='line'&&i.type!=='curve'&&i.type!=='frame'&&i.type!=='image').forEach(i=>{
                 const x=i.x*S+OX, y=i.y*S+OY, w=i.w*S, h=i.h*S;
                 ctx2.save();ctx2.translate(x,y);
                 const clip=clipPaths[i.type];
                 if(clip){ctx2.beginPath();clip(ctx2,w,h);ctx2.fillStyle=i.color||'#ddd';ctx2.fill();ctx2.clip();}
                 else if(i.type==='circle'){ctx2.beginPath();ctx2.ellipse(w/2,h/2,w/2,h/2,0,0,Math.PI*2);ctx2.fillStyle=i.color||'#ddd';ctx2.fill();}
-                else if(i.type==='image'&&i.src){
-                    const img=new Image();
-                    img.onload=()=>{ctx2.drawImage(img,0,0,w,h);drawTxt(i,w,h);ctx2.restore();};
-                    img.onerror=()=>{ctx2.fillStyle=i.color||'#ddd';ctx2.beginPath();ctx2.roundRect(0,0,w,h,8);ctx2.fill();drawTxt(i,w,h);ctx2.restore();};
-                    img.src=i.src;return;
-                }else{ctx2.fillStyle=i.color||'#ddd';const br=i.type==='rounded'?16:8;ctx2.beginPath();ctx2.roundRect(0,0,w,h,br);ctx2.fill();}
+                else{ctx2.fillStyle=i.color||'#ddd';const br=i.type==='rounded'?16:8;ctx2.beginPath();ctx2.roundRect(0,0,w,h,br);ctx2.fill();}
                 drawTxt(i,w,h);ctx2.restore();
-            }
-            function drawTxt(i,w,h){if(!i.text)return;ctx2.fillStyle=i.textColor||'#1a1a1a';const fs=(i.fontSize||14)*S;ctx2.font=(i.bold?'bold ':'')+(i.italic?'italic ':'')+fs+'px '+(i.fontFamily||'Arial');ctx2.textAlign='center';ctx2.textBaseline='middle';const lines=i.text.split('\\n');const lh=fs*1.3;const sy=(h-lines.length*lh)/2+lh/2;lines.forEach((l,li)=>ctx2.fillText(l,w/2,sy+li*lh));}
-            items.filter(i=>i.type!=='line'&&i.type!=='curve'&&i.type!=='frame').forEach(i=>drawShape(i));
+            });
+
+            items.filter(i=>i.type==='image'&&i.src).forEach(i=>{
+                const x=i.x*S+OX, y=i.y*S+OY, w=i.w*S, h=i.h*S;
+                if(!imageCache[i.src]){
+                    const img=new Image();
+                    img.src=i.src;
+                    img.onload=()=>draw();
+                    imageCache[i.src]=img;
+                }
+                const img=imageCache[i.src];
+                ctx2.save();ctx2.translate(x,y);
+                if(img.complete&&img.naturalWidth>0){ctx2.drawImage(img,0,0,w,h);}
+                else{ctx2.fillStyle=i.color||'#ddd';ctx2.beginPath();ctx2.roundRect(0,0,w,h,8);ctx2.fill();}
+                drawTxt(i,w,h);ctx2.restore();
+            });
 
             zoomInfo.textContent = Math.round(zoomLevel*100)+'%';
         }
@@ -1726,50 +1748,50 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
 </html>"""
         html = html.replace('BOARD_TITLE', note.title).replace('BOARD_DATA', safe_board_data)
     else:
-        html = f"""<!DOCTYPE html>
+        html = """<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{note.title}</title>
-    <meta name="description" content="{description}">
+    <title>NOTE_TITLE</title>
+    <meta name="description" content="NOTE_DESCRIPTION">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Geist:wght@100..900&family=Geist+Mono&family=Instrument+Serif:ital@0;1&display=swap" rel="stylesheet">
     <style>
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ font-family: 'Geist', system-ui, sans-serif; min-height: 100vh; padding: 2rem; background: #F7F7F5; color: #333; line-height: 1.7; }}
-        article {{ width: 100%; }}
-        h1 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 3rem; margin-bottom: 1.5rem; line-height: 1.1; }}
-        h2 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 2rem; margin-bottom: 0.75rem; }}
-        h3 {{ font-family: 'Instrument Serif', Georgia, serif; font-size: 1.3rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }}
-        p {{ margin-bottom: 1rem; font-size: 1.05rem; }}
-        pre {{ background: #1e1e2d; color: #e2e8f0; padding: 1.25rem; border-radius: 0.75rem; overflow-x: auto; margin: 1rem 0; }}
-        code {{ font-family: 'Geist Mono', monospace; font-size: 0.9rem; }}
-        p code {{ background: #e8e0d4; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.85rem; }}
-        blockquote {{ border-left: 3px solid #7C5CFF; padding: 0.75rem 1rem; margin: 1rem 0; color: #666; background: #f0eef8; border-radius: 0 0.5rem 0.5rem 0; }}
-        img {{ max-width: 100%; border-radius: 0.75rem; margin: 1rem 0; }}
-        a {{ color: #7C5CFF; text-decoration: none; }}
-        a:hover {{ text-decoration: underline; }}
-        ul, ol {{ margin: 1rem 0; padding-left: 1.5rem; }}
-        li {{ margin-bottom: 0.5rem; }}
-        hr {{ border: none; border-top: 1px solid #e8e0d4; margin: 2rem 0; }}
-        table {{ width: 100%; border-collapse: collapse; margin: 1rem 0; }}
-        th, td {{ padding: 0.75rem 1rem; border-bottom: 1px solid #e8e0d4; text-align: left; }}
-        th {{ font-weight: 600; background: #f0eef8; }}
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Geist', system-ui, sans-serif; min-height: 100vh; padding: 2rem; background: #F7F7F5; color: #333; line-height: 1.7; }
+        article { width: 100%; }
+        h1 { font-family: 'Instrument Serif', Georgia, serif; font-size: 3rem; margin-bottom: 1.5rem; line-height: 1.1; }
+        h2 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.8rem; margin-top: 2rem; margin-bottom: 0.75rem; }
+        h3 { font-family: 'Instrument Serif', Georgia, serif; font-size: 1.3rem; margin-top: 1.5rem; margin-bottom: 0.5rem; }
+        p { margin-bottom: 1rem; font-size: 1.05rem; }
+        pre { background: #1e1e2d; color: #e2e8f0; padding: 1.25rem; border-radius: 0.75rem; overflow-x: auto; margin: 1rem 0; }
+        code { font-family: 'Geist Mono', monospace; font-size: 0.9rem; }
+        p code { background: #e8e0d4; padding: 0.15rem 0.4rem; border-radius: 0.25rem; font-size: 0.85rem; }
+        blockquote { border-left: 3px solid #7C5CFF; padding: 0.75rem 1rem; margin: 1rem 0; color: #666; background: #f0eef8; border-radius: 0 0.5rem 0.5rem 0; }
+        img { max-width: 100%; border-radius: 0.75rem; margin: 1rem 0; }
+        a { color: #7C5CFF; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        ul, ol { margin: 1rem 0; padding-left: 1.5rem; }
+        li { margin-bottom: 0.5rem; }
+        hr { border: none; border-top: 1px solid #e8e0d4; margin: 2rem 0; }
+        table { width: 100%; border-collapse: collapse; margin: 1rem 0; }
+        th, td { padding: 0.75rem 1rem; border-bottom: 1px solid #e8e0d4; text-align: left; }
+        th { font-weight: 600; background: #f0eef8; }
     </style>
 </head>
 <body>
     <article>
-        <h1>{note.title}</h1>
+        <h1>NOTE_TITLE</h1>
         <div id="content"></div>
     </article>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
-        document.getElementById('content').innerHTML = marked.parse(`{safe_content}`);
+        document.getElementById('content').innerHTML = marked.parse(`NOTE_CONTENT`, {breaks: true});
     </script>
 </body>
 </html>"""
-        html = html.replace('BOARD_TITLE', note.title).replace('BOARD_DATA', safe_board_data)
+        html = html.replace('NOTE_TITLE', note.title).replace('NOTE_DESCRIPTION', description).replace('NOTE_CONTENT', safe_content)
     return HTMLResponse(content=html)
 
 # ==================== GOOGLE CALENDAR API ====================

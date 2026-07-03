@@ -779,6 +779,11 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
             setPublishSlug(result.slug);
           }
         }}
+        onUnpublish={async () => {
+          const { api } = await import('../api/client');
+          await api.unpublishNote(note.id);
+          setPublishSlug(null);
+        }}
       />
     </div>
   );

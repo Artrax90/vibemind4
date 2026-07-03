@@ -96,13 +96,11 @@ function SortableNoteItem({ note, activeNoteId, onSelectNote, onContextMenu, t }
           <div className="flex items-center">
             <span className="text-sm truncate">{note.title}</span>
             {!!note.isSharedByMe && <Share2 size={12} className="ml-1.5 text-primary" />}
-            {!!note.isPublished && (
-              note.publishedExpiresAt ? (
-                <PublishedTimer expiresAt={note.publishedExpiresAt} />
-              ) : (
-                <Globe size={12} className="ml-1.5 text-emerald-500" />
-              )
-            )}
+            {!!note.isPublished && note.publishedExpiresAt ? (
+              <PublishedTimer expiresAt={note.publishedExpiresAt} />
+            ) : !!note.isPublished ? (
+              <Globe size={12} className="ml-1.5 text-emerald-500" />
+            ) : null}
           </div>
           {note.isShared && (
             <span className="text-[10px] text-muted-foreground/60 truncate flex items-center">
@@ -215,12 +213,11 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
 }
 
 function PublishedTimer({ expiresAt }: { expiresAt: string }) {
-  const { t } = useLanguage();
   const [timeLeft, setTimeLeft] = useState('');
   useEffect(() => {
     const update = () => {
       const diff = new Date(expiresAt).getTime() - Date.now();
-      if (diff <= 0) { setTimeLeft('expired'); return; }
+      if (diff <= 0) { setTimeLeft(''); return; }
       const h = Math.floor(diff / 3600000);
       const m = Math.floor((diff % 3600000) / 60000);
       const s = Math.floor((diff % 60000) / 1000);
@@ -230,7 +227,8 @@ function PublishedTimer({ expiresAt }: { expiresAt: string }) {
     const id = setInterval(update, 1000);
     return () => clearInterval(id);
   }, [expiresAt]);
-  return <span className="ml-1.5 text-[10px] text-amber-500 font-mono">{timeLeft === 'expired' ? t('board.expired') : timeLeft}</span>;
+  if (!timeLeft) return null;
+  return <span className="ml-1.5 text-[10px] text-amber-500 font-mono whitespace-nowrap">{timeLeft}</span>;
 }
 
 export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFolders, activeNoteId, isLoading = false, onSelectNote, onOpenSettings, onOpenSearch, onLogout, onNotesChange, onFoldersChange, onAddNote, onAddFolder, onDeleteNote, onDeleteFolder, onRenameFolder, onShare, onQuit, onClose, smartFilter, onSmartFilter, onSwitchView, onSelectFolder, onAddBoard, onToggleSidebar }: SidebarProps) {
