@@ -389,13 +389,6 @@ export default function App() {
           </div>
         )}
 
-        {!isFocusMode && (
-          <button onClick={() => setIsMobileMenuOpen(true)}
-            className="md:hidden absolute top-4 left-4 z-10 p-2 border border-border/50 rounded-lg bg-background/80 backdrop-blur-sm text-muted-foreground hover:text-foreground">
-            <Menu size={20} />
-          </button>
-        )}
-
         <AnimatePresence mode="wait">
           {showSettings ? (
             <motion.div key="settings" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="h-full w-full pb-16 md:pb-0">
@@ -446,7 +439,7 @@ export default function App() {
             </motion.div>
           ) : viewMode === 'calendar' ? (
             <motion.div key="calendar" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
-              className="h-full w-full px-8 pt-4 pb-8 scroll-elegant relative" onClick={() => expandedDay && setExpandedDay(null)}>
+              className="h-full w-full px-4 md:px-8 pt-4 pb-20 md:pb-8 scroll-elegant relative" onClick={() => expandedDay && setExpandedDay(null)}>
               <div className="flex items-center mb-6">
                 <h2 className="font-serif text-2xl font-bold text-foreground">{new Date(calYear, calMonth).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</h2>
                 <div className="flex items-center gap-1 ml-4">
@@ -553,7 +546,7 @@ export default function App() {
             </motion.div>
           ) : (
             <motion.div key="empty" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-              className="flex-1 flex flex-col items-center justify-center text-center px-8">
+              className="flex-1 flex flex-col items-center justify-center text-center px-8 pb-20 md:pb-0">
               <Sparkles className="text-primary mb-4 opacity-60" size={32} />
               <h2 className="font-serif text-4xl text-foreground mb-2">{t('editor.emptyTitle') || 'Ваши заметки'}</h2>
               <p className="text-muted-foreground max-w-md text-sm leading-relaxed">{t('editor.empty')}</p>
