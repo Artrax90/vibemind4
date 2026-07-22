@@ -700,6 +700,53 @@ ${context}
     return await res.json();
   },
 
+  async testBotConnection(tgToken: string, proxyConfig?: any): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) throw new Error('Server not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('Not authenticated');
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/bot/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ tg_token: tgToken, proxy_config: proxyConfig })
+    });
+    return await res.json();
+  },
+
+  async testProvider(provider: any): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) throw new Error('Server not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('Not authenticated');
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/integrations/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({
+        provider: provider.provider,
+        api_key: provider.apiKey,
+        base_url: provider.baseUrl,
+        model_name: provider.modelName
+      })
+    });
+    return await res.json();
+  },
+
+  async testProxy(proxyConfig: any): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) throw new Error('Server not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('Not authenticated');
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/proxy/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ proxy_config: proxyConfig })
+    });
+    return await res.json();
+  },
+
   async clearLocalData() {
     await dbApi.clearData();
   }

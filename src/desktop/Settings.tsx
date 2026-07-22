@@ -24,7 +24,8 @@ function GoogleCalendarSection() {
   const handleSaveCredentials = async () => {
     if (!clientId || !clientSecret) return;
     try {
-      const res = await fetch('/api/calendar/config', {
+      const url = await api.getNormalizedUrl();
+      const res = await fetch(`${url}/api/calendar/config`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
         body: JSON.stringify({ client_id: clientId, client_secret: clientSecret })
@@ -190,6 +191,12 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   const [isCreateUserOpen, setIsCreateUserOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<any | null>(null);
 
+  const serverFetch = async (path: string, options?: RequestInit) => {
+    const url = await api.getNormalizedUrl();
+    const headers = { ...getAuthHeaders(), ...options?.headers };
+    return fetch(`${url}${path}`, { ...options, headers });
+  };
+
   useEffect(() => {
     const loadSettings = async () => {
       try {
@@ -240,7 +247,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
         .catch(() => setExternalDbs([]));
     }
     if (activeTab === 'bots' && currentUser?.role === 'admin') {
-      fetch('/api/admin/bots', {
+      serverFetch('/api/admin/bots', {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
       })
       .then(res => res.json())
@@ -266,7 +273,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   // Fetch RAG stats when AI tab opens
   useEffect(() => {
     if (activeTab === 'ai') {
-      fetch('/api/notes', {
+      serverFetch('/api/notes', {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
       })
       .then(res => res.json())
@@ -283,7 +290,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
     setIsTestingAI(true);
     setTestResponse('');
     try {
-      const response = await fetch('/api/chat', {
+      const response = await serverFetch('/api/chat', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -345,17 +352,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
     
     setIsTesting(true);
     try {
-      const response = await fetch('/api/bot/test', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify({ tg_token: botToken, proxy_config: proxyConfig })
-      });
-
-      const data = await response.json();
-      if (response.ok) {
+      const data = await api.testBotConnection(botToken, proxyConfig);
+      if (data.message && !data.detail) {
         setBotStatus({ status: 'connected' });
         alert(data.message || t('settings.connSuccess'));
       } else {
@@ -377,16 +375,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
       return;
     }
     try {
-      const response = await fetch('/api/proxy/test', {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify({ proxy_config: proxyConfig })
-      });
-      const data = await response.json();
-      if (response.ok && data.status === 'success') {
+      const data = await api.testProxy(proxyConfig);
+      if (data.status === 'success') {
         alert(t('settings.proxySuccess'));
       } else {
         alert(`${t('settings.proxyFailed')}${data.detail || t('settings.unknownError')}`);
@@ -422,21 +412,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
     setTestingProviderId(provider.id);
     setTestResult(null);
     try {
-      const response = await fetch('/api/integrations/test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
-        },
-        body: JSON.stringify({
-          provider: provider.provider,
-          api_key: provider.apiKey,
-          base_url: provider.baseUrl,
-          model_name: provider.modelName
-        })
-      });
-      const data = await response.json();
-      if (response.ok && data.status === 'success') {
+      const data = await api.testProvider(provider);
+      if (data.status === 'success') {
         setProviders(providers.map(p => p.id === provider.id ? { ...p, status: 'connected' } : p));
         setTestResult({ id: provider.id, ok: true, msg: t('settings.connSuccess') });
       } else {
@@ -705,7 +682,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       onClick={async () => {
                         setIsReindexing(true);
                         try {
-                          const res = await fetch('/api/notes/reindex', {
+                          const res = await serverFetch('/api/notes/reindex', {
                             method: 'POST',
                             headers: { 
                               'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
@@ -743,7 +720,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                     <button 
                       onClick={async () => {
                         try {
-                          const res = await fetch('/api/notes/export', {
+                          const res = await serverFetch('/api/notes/export', {
                             headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
                           });
                           if (res.ok) {
@@ -1106,7 +1083,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       onClick={async () => {
                         setIsReindexing(true);
                         try {
-                          const res = await fetch('/api/notes/reindex', {
+                          const res = await serverFetch('/api/notes/reindex', {
                             method: 'POST',
                             headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json' }
                           });
