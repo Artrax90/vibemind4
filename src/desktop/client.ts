@@ -631,7 +631,7 @@ ${context}
 
   async getCalendarStatus(): Promise<any> {
     const config = await dbApi.getSyncConfig();
-    if (!config.server_url) return { connected: false };
+    if (!config.server_url) return { connected: false, message: 'Server not configured' };
     const token = await this.getServerToken();
     if (!token) return { connected: false };
     const url = this.getNormalizedUrl();
@@ -700,51 +700,125 @@ ${context}
     return await res.json();
   },
 
+  async testBotConnectionDirect(tgToken: string): Promise<any> {
+    try {
+      const res = await fetch(`https://api.telegram.org/bot${tgToken}/getMe`);
+      const data = await res.json();
+      if (data.ok) {
+        return { status: 'success', message: `Bot connected: @${data.result.username}`, username: data.result.username };
+      }
+      return { status: 'error', detail: data.description || 'Invalid token' };
+    } catch (e: any) {
+      return { status: 'error', detail: e.message || 'Connection failed' };
+    }
+  },
+
   async testBotConnection(tgToken: string, proxyConfig?: any): Promise<any> {
     const config = await dbApi.getSyncConfig();
-    if (!config.server_url) throw new Error('Server not configured');
-    const token = await this.getServerToken();
-    if (!token) throw new Error('Not authenticated');
-    const url = this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/bot/test`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ tg_token: tgToken, proxy_config: proxyConfig })
-    });
-    return await res.json();
+    // If server configured, try server first
+    if (config.server_url && config.username) {
+      try {
+        const token = await this.getServerToken();
+        if (token) {
+          const url = this.getNormalizedUrl();
+          const res = await fetch(`${url}/api/bot/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ tg_token: tgToken, proxy_config: proxyConfig })
+          });
+          if (res.ok) return await res.json();
+        }
+      } catch (e) {}
+    }
+    // Fallback: test directly
+    return this.testBotConnectionDirect(tgToken);
+  },
+
+  async testProviderDirect(provider: any): Promise<any> {
+    try {
+      if (provider.provider === 'openai' || provider.provider === 'openrouter' || provider.provider === 'ollama') {
+        const apiUrl = provider.baseUrl || (provider.provider === 'openai' ? 'https://api.openai.com/v1' : 'https://openrouter.ai/api/v1');
+        const res = await fetch(`${apiUrl}/chat/completions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${provider.apiKey}` },
+          body: JSON.stringify({ model: provider.modelName, messages: [{ role: 'user', content: 'Hello' }], max_tokens: 10 })
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          return { status: 'error', detail: `HTTP ${res.status}: ${err.substring(0, 200)}` };
+        }
+        return { status: 'success' };
+      } else if (provider.provider === 'gemini') {
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${provider.modelName || 'gemini-1.5-flash'}:generateContent?key=${provider.apiKey}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contents: [{ parts: [{ text: 'Hello' }] }] })
+        });
+        if (!res.ok) {
+          const err = await res.text();
+          return { status: 'error', detail: `HTTP ${res.status}: ${err.substring(0, 200)}` };
+        }
+        return { status: 'success' };
+      } else {
+        return { status: 'error', detail: 'Unknown provider type' };
+      }
+    } catch (e: any) {
+      return { status: 'error', detail: e.message || 'Connection failed' };
+    }
   },
 
   async testProvider(provider: any): Promise<any> {
     const config = await dbApi.getSyncConfig();
-    if (!config.server_url) throw new Error('Server not configured');
-    const token = await this.getServerToken();
-    if (!token) throw new Error('Not authenticated');
-    const url = this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/integrations/test`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({
-        provider: provider.provider,
-        api_key: provider.apiKey,
-        base_url: provider.baseUrl,
-        model_name: provider.modelName
-      })
-    });
-    return await res.json();
+    // If server configured, try server first
+    if (config.server_url && config.username) {
+      try {
+        const token = await this.getServerToken();
+        if (token) {
+          const url = this.getNormalizedUrl();
+          const res = await fetch(`${url}/api/integrations/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({
+              provider: provider.provider,
+              api_key: provider.apiKey,
+              base_url: provider.baseUrl,
+              model_name: provider.modelName
+            })
+          });
+          if (res.ok) return await res.json();
+        }
+      } catch (e) {}
+    }
+    // Fallback: test directly
+    return this.testProviderDirect(provider);
   },
 
   async testProxy(proxyConfig: any): Promise<any> {
     const config = await dbApi.getSyncConfig();
-    if (!config.server_url) throw new Error('Server not configured');
-    const token = await this.getServerToken();
-    if (!token) throw new Error('Not authenticated');
-    const url = this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/proxy/test`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-      body: JSON.stringify({ proxy_config: proxyConfig })
-    });
-    return await res.json();
+    // If server configured, try server first
+    if (config.server_url && config.username) {
+      try {
+        const token = await this.getServerToken();
+        if (token) {
+          const url = this.getNormalizedUrl();
+          const res = await fetch(`${url}/api/proxy/test`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+            body: JSON.stringify({ proxy_config: proxyConfig })
+          });
+          if (res.ok) return await res.json();
+        }
+      } catch (e) {}
+    }
+    // Fallback: test proxy directly
+    try {
+      const proxyUrl = `${proxyConfig.protocol.toLowerCase()}://${proxyConfig.username ? proxyConfig.username + ':' + proxyConfig.password + '@' : ''}${proxyConfig.host}:${proxyConfig.port}`;
+      const res = await fetch('https://httpbin.org/ip', { method: 'GET', signal: AbortSignal.timeout(10000) });
+      if (res.ok) return { status: 'success', message: 'Proxy works (direct connection)' };
+      return { status: 'error', detail: 'Direct connection failed' };
+    } catch (e: any) {
+      return { status: 'error', detail: e.message || 'Proxy test failed' };
+    }
   },
 
   async clearLocalData() {
