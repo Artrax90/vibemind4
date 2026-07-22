@@ -500,38 +500,38 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
         </div>
       </div>
 
-      <div className="flex flex-1 overflow-hidden">
-        {/* Sidebar Tabs */}
-        <div className="w-64 border-r border-border/50 p-4 space-y-1 overflow-y-auto scroll-elegant">
-          <button onClick={() => setActiveTab('connection')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'connection' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Server size={16} className="mr-3" /> {t('settings.connection')}
+      <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
+        {/* Sidebar Tabs — horizontal on mobile, vertical on desktop */}
+        <div className="md:w-64 md:border-r border-b md:border-b-0 border-border/50 p-2 md:p-4 overflow-x-auto md:overflow-y-auto md:scroll-elegant flex md:flex-col gap-1 shrink-0">
+          <button onClick={() => setActiveTab('connection')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'connection' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Server size={16} className="mr-2" /> {t('settings.connection')}
           </button>
-          <button onClick={() => setActiveTab('general')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'general' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Globe size={16} className="mr-3" /> {t('settings.general')}
+          <button onClick={() => setActiveTab('general')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'general' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Globe size={16} className="mr-2" /> {t('settings.general')}
           </button>
-          <button onClick={() => setActiveTab('ai')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'ai' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Sparkles size={16} className="mr-3" /> {t('settings.ai')}
+          <button onClick={() => setActiveTab('ai')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'ai' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Sparkles size={16} className="mr-2" /> {t('settings.ai')}
           </button>
-          <button onClick={() => setActiveTab('bots')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'bots' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <MessageSquare size={16} className="mr-3" /> {t('settings.bots')}
+          <button onClick={() => setActiveTab('bots')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'bots' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <MessageSquare size={16} className="mr-2" /> {t('settings.bots')}
           </button>
-          <button onClick={() => setActiveTab('profile')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'profile' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <User size={16} className="mr-3" /> {t('settings.profile') || 'Profile'}
+          <button onClick={() => setActiveTab('profile')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'profile' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <User size={16} className="mr-2" /> {t('settings.profile') || 'Profile'}
           </button>
           {currentUser?.role === 'admin' && (
             <>
-              <button onClick={() => setActiveTab('users')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'users' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-                <Shield size={16} className="mr-3" /> {t('settings.users')}
+              <button onClick={() => setActiveTab('users')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'users' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                <Shield size={16} className="mr-2" /> {t('settings.users')}
               </button>
-              <button onClick={() => setActiveTab('logs')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'logs' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-                <Terminal size={16} className="mr-3" /> {t('settings.logs') || 'Logs'}
+              <button onClick={() => setActiveTab('logs')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                <Terminal size={16} className="mr-2" /> {t('settings.logs') || 'Logs'}
               </button>
             </>
           )}
         </div>
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-y-auto p-8 scroll-elegant">
+        <div className="flex-1 overflow-y-auto p-4 md:p-8 scroll-elegant">
           <div className="max-w-3xl mx-auto space-y-8">
 
             {activeTab === 'connection' && (
