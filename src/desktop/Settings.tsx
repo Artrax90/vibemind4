@@ -703,9 +703,9 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         }
                       }}
                       disabled={isReindexing}
-                      className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center disabled:opacity-50"
+                      className="px-3 md:px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center text-sm disabled:opacity-50"
                     >
-                      <Database size={16} className={`mr-2 ${isReindexing ? 'animate-spin' : ''}`} /> {isReindexing ? t('settings.reindexing') : t('settings.reindex')}
+                      <Database size={14} className={`mr-1.5 ${isReindexing ? 'animate-spin' : ''}`} /> <span className="hidden md:inline">{isReindexing ? t('settings.reindexing') : t('settings.reindex')}</span><span className="md:hidden">{isReindexing ? '...' : t('settings.reindex')}</span>
                     </button>
                   </div>
                 </section>
@@ -744,9 +744,9 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                           alert(t('settings.exportError'));
                         }
                       }}
-                      className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center"
+                      className="px-3 md:px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center text-sm shrink-0"
                     >
-                      <Download size={16} className="mr-2" /> {t('settings.exportZip')}
+                      <Download size={14} className="mr-1.5" /> <span className="hidden md:inline">{t('settings.exportZip')}</span><span className="md:hidden">ZIP</span>
                     </button>
                   </div>
                   
@@ -755,8 +755,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       <div className="text-foreground font-medium">{t('settings.importNotes')}</div>
                       <div className="text-sm text-muted-foreground">{t('settings.importDesc')}</div>
                     </div>
-                    <label className="px-4 py-2 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all flex items-center cursor-pointer">
-                      <Upload size={16} className="mr-2" /> {t('settings.importZip')}
+                    <label className="px-3 md:px-4 py-2 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all flex items-center cursor-pointer text-sm shrink-0">
+                      <Upload size={14} className="mr-1.5" /> <span className="hidden md:inline">{t('settings.importZip')}</span><span className="md:hidden">ZIP</span>
                       <input 
                         type="file" 
                         accept=".zip" 
@@ -794,9 +794,9 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                     </div>
                     <button 
                       onClick={() => setIsAddDBOpen(true)}
-                      className="flex items-center px-3 py-1.5 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all"
+                      className="flex items-center px-2 md:px-3 py-1.5 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all text-sm shrink-0"
                     >
-                      <Plus size={16} className="mr-2" /> {t('settings.addDb')}
+                      <Plus size={14} className="mr-1" /> <span className="hidden md:inline">{t('settings.addDb')}</span><span className="md:hidden">+</span>
                     </button>
                   </div>
                   
