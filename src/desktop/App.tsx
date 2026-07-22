@@ -1,82 +1,97 @@
-import React, { useState, useEffect, useCallback, Suspense } from 'react';
+import React, { useState, useEffect, Suspense } from 'react';
+import { Component, ErrorInfo, ReactNode } from 'react';
 import Sidebar from '../components/Sidebar';
 import Editor from './Editor';
+import Chat from '../components/Chat';
 import Settings from './Settings';
 import GraphView from '../components/GraphView';
-import Chat from '../components/Chat';
-import ShareModal from '../components/ShareModal';
 import BentoGrid from '../components/BentoGrid';
+import NotificationsPanel from '../components/NotificationsPanel';
+import ShareModal from '../components/ShareModal';
+import ReminderModal from '../components/ReminderModal';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, RefreshCw, MessageSquare, BarChart3, Calendar, LayoutGrid, FileText, Hash, ChevronLeft, ChevronRight, Plus, Bell, Trash2 } from 'lucide-react';
-import { useLanguage } from '../contexts/LanguageContext';
-import { useSync } from '../contexts/SyncContext';
-import { Capacitor } from '@capacitor/core';
-import { dbApi } from '../lib/db';
-import { api } from './client';
-import SyncManager from '../components/SyncManager';
-import { Note, Folder } from '../types';
+import { Network, Edit3, Eye, Search, X, Menu, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, MessageSquare, PanelLeftOpen, ChevronLeft, ChevronRight, Bell, Plus } from 'lucide-react';
 
 const BoardEditor = React.lazy(() => import('../components/BoardEditor'));
+import { useLanguage } from '../contexts/LanguageContext';
+import { Note, Folder } from '../types';
+import { api, getAuthHeaders } from './client';
+import { Capacitor } from '@capacitor/core';
+import { dbApi } from '../lib/db';
+import SyncManager from '../components/SyncManager';
 
 (window as any).desktopApi = api;
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: any }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: any) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("ErrorBoundary caught an error", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="h-screen w-full flex flex-col items-center justify-center bg-background text-foreground p-6 text-center">
+          <AlertTriangle className="h-12 w-12 text-destructive mb-4" />
+          <h1 className="text-2xl font-bold mb-2">Something went wrong</h1>
+          <p className="text-muted-foreground mb-4 max-w-md">The application crashed. This might be due to a loading error or data mismatch.</p>
+          <pre className="p-4 bg-secondary/50 rounded-lg text-xs font-mono mb-4 max-w-full overflow-auto">
+            {this.state.error?.toString()}
+          </pre>
+          <button onClick={() => window.location.reload()} className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:opacity-90 transition-opacity">
+            Reload Page
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 export default function App() {
   const { t } = useLanguage();
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
+  const [unlockedFolders, setUnlockedFolders] = useState<Set<string>>(new Set());
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento' | 'board'>('preview');
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    return localStorage.getItem('theme') as 'light' | 'dark' || 'dark';
-  });
-  const [isLoading, setIsLoading] = useState(false);
-  const [showChat, setShowChat] = useState(false);
-  const [baseUrl, setBaseUrl] = useState<string>('');
-  const [unlockedFolders, setUnlockedFolders] = useState<Set<string>>(new Set());
-  const [reminders, setReminders] = useState<any[]>([]);
+  const [isFocusMode, setIsFocusMode] = useState(false);
+  const [chatOpen, setChatOpen] = useState(true);
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
-  const [calMonth, setCalMonth] = useState(new Date().getMonth());
-  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
+  const [calYear, setCalYear] = useState(() => new Date().getFullYear());
+  const [reminders, setReminders] = useState<any[]>([]);
   const [showCalendarReminder, setShowCalendarReminder] = useState(false);
   const [calReminderDate, setCalReminderDate] = useState('');
+  const [editingReminder, setEditingReminder] = useState<any>(null);
+  const [deletingItem, setDeletingItem] = useState<{ type: string; id: string; title: string } | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [smartFilter, setSmartFilter] = useState<string | null>(null);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        return localStorage.getItem('theme') as 'light' | 'dark' || 'dark';
+      }
+    } catch (e) {}
+    return 'dark';
+  });
+  const [isLoading, setIsLoading] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareResource, setShareResource] = useState<{ id: string; type: 'note' | 'folder'; name: string } | null>(null);
 
-  // Share Modal State
-  const [shareModal, setShareModal] = useState<{
-    isOpen: boolean;
-    type: 'note' | 'folder' | null;
-    id: string | null;
-    name: string | null;
-  }>({ isOpen: false, type: null, id: null, name: null });
-
-  const { status, progress } = useSync();
-
-  const syncProgress = progress.total > 0 ? (progress.current / progress.total) * 100 : 0;
-
-  useEffect(() => {
-    api.getNormalizedUrl().then(url => {
-      if (url) setBaseUrl(url);
-    });
-  }, []);
-
-  const handleLogout = async () => {
-    if (confirm('Are you sure you want to logout? This will clear all local data and sync settings.')) {
-      await api.clearLocalData();
-      setNotes([]);
-      setFolders([]);
-      setActiveNoteId(null);
-      window.location.reload();
-    }
-  };
-
-  const handleShare = (type: 'note' | 'folder', id: string) => {
-    const name = type === 'note' 
-      ? notes.find(n => n.id === id)?.title || '' 
-      : folders.find(f => f.id === id)?.name || '';
-    setShareModal({ isOpen: true, type, id, name });
+  const handleSetTheme = (newTheme: 'light' | 'dark') => {
+    setTheme(newTheme);
+    try { localStorage.setItem('theme', newTheme); } catch (e) {}
   };
 
   useEffect(() => {
@@ -88,118 +103,162 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    setIsLoading(true);
+    Promise.all([api.getNotes(), api.getFolders(), api.getReminders()]).then(([fetchedNotes, fetchedFolders, fetchedReminders]) => {
+      setNotes(fetchedNotes || []);
+      setFolders(fetchedFolders || []);
+      setReminders(fetchedReminders || []);
+      setIsLoading(false);
+    }).catch(err => {
+      console.error("Failed to fetch data", err);
+      setIsLoading(false);
+    });
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault();
+        setShowSearch(true);
+      }
+      if (e.key === 'Escape') {
+        setShowSearch(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  useEffect(() => {
     const handleCloseSidebar = () => setIsMobileMenuOpen(false);
     document.addEventListener('close-sidebar', handleCloseSidebar);
     return () => document.removeEventListener('close-sidebar', handleCloseSidebar);
   }, []);
 
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
-    try {
-      const [fetchedNotes, fetchedFolders] = await Promise.all([
-        api.getNotes(),
-        api.getFolders()
-      ]);
-      console.log(`[Data] Loaded ${fetchedNotes.length} notes and ${fetchedFolders.length} folders`);
-      setNotes(fetchedNotes || []);
-      setFolders(fetchedFolders || []);
-    } catch (err) {
-      console.error("Failed to fetch data", err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
-
-  useEffect(() => {
-    if (viewMode === 'calendar') {
-      api.getReminders?.().then(r => setReminders(r || [])).catch(() => {});
-    }
-  }, [viewMode]);
-
-  const handleSyncComplete = useCallback(() => {
-    loadData();
-    // Force editor refresh if active note was updated
-    if (activeNoteId) {
-      setActiveNoteId(prev => prev);
-    }
-  }, [loadData, activeNoteId]);
-
   const handleNoteSelect = (id: string, mode: 'edit' | 'preview' = 'preview') => {
+    const note = notes.find(n => n.id === id);
+    if (!note) return;
+
+    if (note.folderId) {
+      const folder = folders.find(f => f.id === note.folderId);
+      if (folder?.isProtected && !unlockedFolders.has(folder.id)) {
+        document.dispatchEvent(new CustomEvent('request-folder-unlock', { detail: { folderId: folder.id, noteId: id, mode } }));
+        return;
+      }
+    }
+
+    try {
+      const recent: string[] = JSON.parse(localStorage.getItem('recentNotes') || '[]');
+      const updated = [id, ...recent.filter(r => r !== id)].slice(0, 10);
+      localStorage.setItem('recentNotes', JSON.stringify(updated));
+    } catch (e) {}
+
     setActiveNoteId(id);
     setShowSettings(false);
-    setViewMode(mode);
+    if (note.content && note.content.includes('<!-- board:')) {
+      setViewMode('board');
+    } else {
+      setViewMode(mode === 'edit' ? 'edit' : 'preview');
+    }
     setShowSearch(false);
     setIsMobileMenuOpen(false);
-    // Auto-detect board
-    const note = notes.find(n => n.id === id);
-    if (note?.content?.includes('<!-- board:')) {
-      setViewMode('board');
-    }
   };
+
+  const availableNotes = React.useMemo(() => {
+    let filtered = notes.filter(n => {
+      if (!n.folderId) return true;
+      const f = folders.find(f => f.id === n.folderId);
+      if (f?.isProtected && !unlockedFolders.has(n.folderId)) return false;
+      return true;
+    });
+    if (smartFilter) {
+      const now = new Date();
+      const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      filtered = filtered.filter(n => {
+        const content = n.content || '';
+        switch (smartFilter) {
+          case 'recent-week': {
+            const dateStr = (n as any).updated_at || (n as any).created_at || '';
+            if (!dateStr) return false;
+            const d = new Date(dateStr);
+            return !isNaN(d.getTime()) && d > weekAgo;
+          }
+          case 'with-tags': return /(^|\s)#[a-zA-Zа-яА-Я]/.test(content);
+          case 'with-images': return /!\[.*?\]\(.*?\)/.test(content);
+          case 'with-tasks': return /^- \[[ x]\]/m.test(content);
+          case 'no-tags': return !/(^|\s)#[a-zA-Zа-яА-Я]/.test(content) && !n.folderId;
+          default: return true;
+        }
+      });
+    }
+    return filtered;
+  }, [notes, folders, unlockedFolders, smartFilter]);
 
   const activeNote = notes.find(n => n.id === activeNoteId);
 
-  const updateNote = async (id: string, updates: Partial<Note>) => {
-    const updated_at = new Date().toISOString();
-    const finalUpdates = { ...updates, updated_at };
-    setNotes(prev => prev.map(n => n.id === id ? { ...n, ...finalUpdates } : n));
-    await api.updateNote(id, finalUpdates);
+  const updateNote = (id: string, updates: Partial<Note>) => {
+    setNotes(prev => {
+      const now = new Date().toISOString();
+      const newNotes = prev.map(n => n.id === id ? { ...n, ...updates, updated_at: now } : n);
+      const updatedNote = newNotes.find(n => n.id === id);
+      if (updatedNote) api.createNote(updatedNote);
+      return newNotes;
+    });
   };
 
-  const addNote = async (newNote: Note) => {
+  const addNote = (newNote: Note) => {
     setNotes(prev => [...prev, newNote]);
-    await api.createNote(newNote);
+    api.createNote(newNote).catch(console.error);
     setActiveNoteId(newNote.id);
     setViewMode('edit');
+    setShowSearch(false);
+    setIsMobileMenuOpen(false);
   };
 
-  const addFolder = async (newFolder: Folder) => {
+  const addFolder = (newFolder: Folder) => {
     setFolders(prev => [...prev, newFolder]);
-    await api.createFolder(newFolder);
+    api.createFolder(newFolder);
   };
 
-  const addBoard = async () => {
+  const addBoard = () => {
     const newNote: Note = {
       id: `n${Date.now()}`,
-      title: `${t('common.newBoard') || 'Доска'} ${notes.length + 1}`,
+      title: `Board: ${t('common.newNote')}`,
       content: '<!-- board:{"items":[]} -->',
-      permission: 'owner'
+      permission: 'owner',
     };
-    await addNote(newNote);
+    addNote(newNote);
     setViewMode('board');
   };
 
-  const deleteNote = async (id: string) => {
+  const deleteNote = (id: string) => {
     setNotes(notes.filter(n => n.id !== id));
     if (activeNoteId === id) setActiveNoteId(null);
-    await api.deleteNote(id);
+    api.deleteNote(id);
   };
 
-  const deleteFolder = async (id: string) => {
+  const deleteFolder = (id: string) => {
     const getSubfolders = (parentId: string): string[] => {
       const children = folders.filter(f => f.parentId === parentId);
       let ids = [parentId];
-      for (const c of children) {
-        ids = ids.concat(getSubfolders(c.id));
-      }
+      for (const c of children) { ids = ids.concat(getSubfolders(c.id)); }
       return ids;
     };
-    
     const allIds = getSubfolders(id);
-    
     setFolders(folders.filter(f => !allIds.includes(f.id)));
     setNotes(notes.filter(n => !n.folderId || !allIds.includes(n.folderId)));
-    await api.deleteFolder(id);
+    api.deleteFolder(id);
   };
 
-  const renameFolder = async (id: string, newName: string) => {
-    const updated_at = new Date().toISOString();
-    setFolders(folders.map(f => f.id === id ? { ...f, name: newName, updated_at } : f));
-    await api.updateFolder(id, { name: newName, updated_at });
+  const renameFolder = (id: string, newName: string) => {
+    setFolders(folders.map(f => {
+      if (f.id === id) {
+        const updated = { ...f, name: newName, updated_at: new Date().toISOString() };
+        api.createFolder(updated);
+        return updated;
+      }
+      return f;
+    }));
   };
 
   const handleWikilinkClick = (title: string) => {
@@ -208,149 +267,126 @@ export default function App() {
       handleNoteSelect(note.id);
     } else {
       const newNote = { id: `n${Date.now()}`, title, content: `# ${title}\n\n` };
-      addNote(newNote);
+      setNotes([...notes, newNote]);
       handleNoteSelect(newNote.id);
     }
   };
 
-  const handleCloseSettings = () => {
-    setShowSettings(false);
-    api.getNormalizedUrl().then(url => {
-      if (url) setBaseUrl(url);
-    });
+  const handleTagClick = (tag: string) => {
+    setSearchQuery(`#${tag}`);
+    setShowSearch(true);
+  };
+
+  const handleShare = (type: 'note' | 'folder', id: string) => {
+    let name = '';
+    if (type === 'note') { name = notes.find(n => n.id === id)?.title || ''; }
+    else { name = folders.find(f => f.id === id)?.name || ''; }
+    setShareResource({ id, type, name });
+    setShareModalOpen(true);
+  };
+
+  const handleLogout = () => {
+    api.clearLocalData();
+    setNotes([]);
+    setFolders([]);
+    setActiveNoteId(null);
+    window.location.reload();
   };
 
   const handleQuit = async () => {
     try {
       const config = await dbApi.getSyncConfig();
       if (config.server_url && config.username && config.password) {
-        // Trigger sync and wait
         window.dispatchEvent(new CustomEvent('force-sync'));
-        
-        // Wait for sync-finished or timeout after 10 seconds
         await new Promise<void>((resolve) => {
-          const timeout = setTimeout(() => {
-            console.log('Sync on quit timed out');
-            resolve();
-          }, 10000);
-          
-          window.addEventListener('sync-finished', () => {
-            clearTimeout(timeout);
-            resolve();
-          }, { once: true });
+          const timeout = setTimeout(() => { console.log('Sync on quit timed out'); resolve(); }, 10000);
+          window.addEventListener('sync-finished', () => { clearTimeout(timeout); resolve(); }, { once: true });
         });
       }
-    } catch (e) {
-      console.error('Error during sync on quit', e);
-    } finally {
-      dbApi.quitApp();
-    }
+    } catch (e) { console.error('Error during sync on quit', e); }
+    finally { dbApi.quitApp(); }
   };
 
   return (
+    <ErrorBoundary>
     <div className="flex h-screen w-full font-sans overflow-hidden bg-background text-foreground">
-      <SyncManager onSyncComplete={loadData} />
-      
-      <div className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity md:hidden ${isMobileMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`} onClick={() => setIsMobileMenuOpen(false)} />
-      
-      <div className={`flex ${isMobileMenuOpen ? 'fixed inset-y-0 left-0 z-50 shadow-2xl' : 'hidden md:flex'}`}>
-        <Sidebar 
-          notes={notes} 
-          folders={folders} 
-          unlockedFolders={unlockedFolders}
-          setUnlockedFolders={setUnlockedFolders}
-          activeNoteId={activeNoteId} 
-          onSelectNote={handleNoteSelect}
-          onOpenSettings={() => { setShowSettings(true); setShowChat(false); }}
-          onOpenSearch={() => setShowSearch(true)}
-          onLogout={handleLogout}
-          onNotesChange={setNotes}
-          onFoldersChange={setFolders}
-          onAddNote={addNote}
-          onAddFolder={addFolder}
-          onDeleteNote={deleteNote}
-          onDeleteFolder={deleteFolder}
-          onRenameFolder={renameFolder}
-          onShare={handleShare}
-          onSwitchView={(mode) => setViewMode(mode as any)}
-          onAddBoard={addBoard}
-          smartFilter=""
-          onSmartFilter={() => {}}
-          onSelectFolder={() => {}}
-          onQuit={!Capacitor.isNativePlatform() ? handleQuit : undefined}
-          onClose={() => setIsMobileMenuOpen(false)}
-        />
-      </div>
-      
-      <main className="flex-1 flex flex-col relative border-r min-w-0 border-border/50">
-        <button 
-          onClick={() => setIsMobileMenuOpen(true)}
-          className="md:hidden absolute top-8 left-4 z-20 p-2 bg-background/80 backdrop-blur-sm border border-border/50 rounded-lg text-foreground shadow-lg"
-        >
-          <Menu size={20} />
+      <SyncManager onSyncComplete={() => {
+        Promise.all([api.getNotes(), api.getFolders(), api.getReminders()]).then(([n, f, r]) => {
+          setNotes(n || []); setFolders(f || []); setReminders(r || []);
+        });
+      }} />
+
+      {isMobileMenuOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setIsMobileMenuOpen(false)} />
+      )}
+
+      {!isFocusMode && (
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out hidden md:block ${sidebarOpen ? 'w-60 opacity-100' : 'w-0 opacity-0'}`} style={{ flexShrink: 0 }}>
+          <div className="w-60 h-full">
+            <Sidebar
+              notes={notes} folders={folders} unlockedFolders={unlockedFolders}
+              setUnlockedFolders={setUnlockedFolders} activeNoteId={activeNoteId}
+              onSelectNote={handleNoteSelect}
+              onOpenSettings={() => { setShowSettings(true); setIsMobileMenuOpen(false); }}
+              onOpenSearch={() => { setShowSearch(true); setIsMobileMenuOpen(false); }}
+              onLogout={handleLogout} onNotesChange={setNotes} onFoldersChange={setFolders}
+              onAddNote={addNote} onAddFolder={addFolder} onDeleteNote={deleteNote}
+              onDeleteFolder={deleteFolder} onRenameFolder={renameFolder} onShare={handleShare}
+              onClose={() => setIsMobileMenuOpen(false)} smartFilter={smartFilter}
+              onSmartFilter={setSmartFilter} onSwitchView={setViewMode}
+              onSelectFolder={setSelectedFolderId} onAddBoard={addBoard}
+              onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+              onQuit={!Capacitor.isNativePlatform() ? handleQuit : undefined}
+            />
+          </div>
+        </div>
+      )}
+
+      {!isFocusMode && !sidebarOpen && (
+        <button onClick={() => setSidebarOpen(true)}
+          className="fixed top-20 left-2 z-20 p-2 rounded-lg bg-background/80 backdrop-blur-sm border border-border/50 text-muted-foreground hover:text-foreground hover:bg-background transition-all duration-200 shadow-sm"
+          title="Show sidebar">
+          <PanelLeftOpen size={16} />
         </button>
+      )}
+
+      <main className="flex-1 flex flex-col relative border-r min-w-0 border-border/50">
+        {!showSettings && (
+          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex items-center space-x-1 rounded-full glass-strong p-1 shadow-premium-lg ring-1 ring-border/50">
+            <button onClick={() => setViewMode('edit')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'edit' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.editMode')}><Edit3 size={16} /></button>
+            <button onClick={() => setViewMode('preview')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'preview' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.previewMode')}><Eye size={16} /></button>
+            <button onClick={() => setViewMode('graph')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'graph' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.graphView')}><Network size={16} /></button>
+            <button onClick={() => setViewMode('stats')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'stats' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.stats')}><BarChart3 size={16} /></button>
+            <button onClick={() => setViewMode('calendar')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'calendar' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.calendar')}><Calendar size={16} /></button>
+            <button onClick={() => setViewMode('bento')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'bento' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.bento')}><LayoutGrid size={16} /></button>
+          </div>
+        )}
 
         {!showSettings && (
-          <div className="absolute bottom-6 md:top-8 md:bottom-auto left-1/2 -translate-x-1/2 z-10 flex items-center space-x-2 rounded-xl border border-border/50 bg-background/80 backdrop-blur-sm p-1.5 shadow-xl">
-            <div className="flex items-center px-2 mr-2 border-r border-border/50 space-x-2">
-              <div className="relative flex items-center justify-center">
-                {status === 'syncing' && <RefreshCw size={16} className="text-primary animate-spin" />}
-                {status === 'success' && <RefreshCw size={16} className="text-accent" />}
-                {status === 'error' && <RefreshCw size={16} className="text-destructive" />}
-                {status === 'idle' && <RefreshCw size={16} className="text-muted-foreground opacity-30" />}
-              </div>
-              {status === 'syncing' && progress.total > 0 && (
-                <div className="flex flex-col w-20">
-                  <div className="w-full h-1 bg-secondary rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-primary transition-all duration-300" 
-                      style={{ width: `${syncProgress}%` }}
-                    />
-                  </div>
-                  <span className="text-[8px] text-muted-foreground mt-0.5 text-center font-mono">
-                    {progress.current}/{progress.total}
-                  </span>
-                </div>
-              )}
-            </div>
-            <button 
-              onClick={() => {
-                if (!activeNoteId) {
-                  const newNote: Note = { id: `n${Date.now()}`, title: t('common.newNote'), content: '', permission: 'owner' };
-                  addNote(newNote);
-                  handleNoteSelect(newNote.id, 'edit');
-                } else {
-                  setViewMode('edit');
-                }
-              }} 
-              className={`p-2 rounded-lg ${viewMode === 'edit' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}
-            >
-              <Edit3 size={18} />
+          <div className="absolute top-6 right-20 z-10 flex items-center gap-2">
+            <button onClick={() => setChatOpen(!chatOpen)} title={chatOpen ? 'Hide chat' : 'Show chat'}
+              className={`p-2 rounded-full transition-all duration-200 ${chatOpen ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}>
+              <MessageSquare size={16} />
             </button>
-            <button onClick={() => setViewMode('preview')} className={`p-2 rounded-lg ${viewMode === 'preview' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}><Eye size={18} /></button>
-            <button onClick={() => setViewMode('graph')} className={`p-2 rounded-lg ${viewMode === 'graph' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}><Network size={18} /></button>
-            <button onClick={() => setViewMode('stats')} className={`p-2 rounded-lg ${viewMode === 'stats' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`} title={t('app.stats')}><BarChart3 size={18} /></button>
-            <button onClick={() => setViewMode('calendar')} className={`p-2 rounded-lg ${viewMode === 'calendar' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`} title={t('app.calendar')}><Calendar size={18} /></button>
-            <button onClick={() => setViewMode('bento')} className={`p-2 rounded-lg ${viewMode === 'bento' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`} title={t('app.bento')}><LayoutGrid size={18} /></button>
-            <div className="w-px h-4 bg-border/50 mx-1" />
-            <button 
-              onClick={() => setShowChat(!showChat)} 
-              className={`p-2 rounded-lg transition-colors ${showChat ? 'bg-primary/20 text-primary' : 'text-muted-foreground hover:text-foreground'}`}
-              title="AI Assistant"
-            >
-              <MessageSquare size={18} />
-            </button>
+            <NotificationsPanel onNoteClick={handleNoteSelect} />
           </div>
+        )}
+
+        {!isFocusMode && (
+          <button onClick={() => setIsMobileMenuOpen(true)}
+            className="md:hidden absolute top-4 left-4 z-10 p-2 border border-border/50 rounded-lg bg-background/80 backdrop-blur-sm text-muted-foreground hover:text-foreground">
+            <Menu size={20} />
+          </button>
         )}
 
         <AnimatePresence mode="wait">
           {showSettings ? (
-            <motion.div key="settings" className="h-full w-full">
-              <Settings onClose={handleCloseSettings} theme={theme} setTheme={(t) => { setTheme(t); localStorage.setItem('theme', t); }} />
+            <motion.div key="settings" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="h-full w-full">
+              <Settings onClose={() => setShowSettings(false)} theme={theme} setTheme={handleSetTheme} />
             </motion.div>
           ) : viewMode === 'graph' ? (
-            <motion.div key="graph" className="h-full w-full">
-              <GraphView notes={notes} activeNoteId={activeNoteId} onNodeClick={handleNoteSelect} />
+            <motion.div key="graph" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full">
+              <GraphView notes={availableNotes} activeNoteId={activeNoteId} onNodeClick={handleNoteSelect} />
             </motion.div>
           ) : viewMode === 'stats' ? (
             <motion.div key="stats" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="h-full w-full p-8 scroll-elegant">
@@ -386,14 +422,14 @@ export default function App() {
           ) : viewMode === 'bento' ? (
             <motion.div key="bento" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="h-full w-full">
               <BentoGrid
-                notes={notes.filter(n => !n.folderId || folders.some(f => f.id === n.folderId && (!f.isProtected || unlockedFolders.has(f.id))))}
-                folders={folders}
-                activeNoteId={activeNoteId}
-                onNoteClick={handleNoteSelect}
+                notes={smartFilter ? availableNotes : notes.filter(n => !n.folderId || folders.some(f => f.id === n.folderId && (!f.isProtected || unlockedFolders.has(f.id))))}
+                folders={folders} activeNoteId={activeNoteId} onNoteClick={handleNoteSelect}
+                folderId={selectedFolderId || undefined}
               />
             </motion.div>
           ) : viewMode === 'calendar' ? (
-            <motion.div key="calendar" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="h-full w-full px-8 pt-4 pb-8 scroll-elegant relative" onClick={() => expandedDay && setExpandedDay(null)}>
+            <motion.div key="calendar" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}
+              className="h-full w-full px-8 pt-4 pb-8 scroll-elegant relative" onClick={() => expandedDay && setExpandedDay(null)}>
               <div className="flex items-center mb-6">
                 <h2 className="font-serif text-2xl font-bold text-foreground">{new Date(calYear, calMonth).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</h2>
                 <div className="flex items-center gap-1 ml-4">
@@ -416,9 +452,9 @@ export default function App() {
                   return cells.map((day, i) => {
                     if (!day) return <div key={i} />;
                     const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const dayNotes = notes.filter(n => (n.updatedAt || '').startsWith(dateStr));
+                    const dayNotes = notes.filter(n => ((n as any).updated_at || '').startsWith(dateStr));
                     const dayReminders = reminders.filter(r => (r.remind_at || '').startsWith(dateStr));
-                    const allItems = [...dayNotes.map(n => ({ type: 'note' as const, id: n.id, title: n.title })), ...dayReminders.map(r => ({ type: 'reminder' as const, id: r.id, noteId: r.note_id, title: r.message || 'Напоминание', time: r.remind_at }))];
+                    const allItems = [...dayNotes.map(n => ({ type: 'note' as const, id: n.id, title: n.title })), ...dayReminders.map(r => ({ type: 'reminder' as const, id: r.id, noteId: r.note_id, title: r.message || notes.find(n => n.id === r.note_id)?.title || 'Напоминание', time: r.remind_at }))];
                     const expanded = expandedDay === dateStr;
                     const today = new Date();
                     const isToday = today.getDate() === day && today.getMonth() === calMonth && today.getFullYear() === calYear;
@@ -439,9 +475,10 @@ export default function App() {
                         </div>
                         <AnimatePresence>
                           {expanded && (
-                            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 4 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2 }}
+                            <motion.div initial={{ opacity: 0, y: -4, scaleY: 0.8 }} animate={{ opacity: 1, y: 4, scaleY: 1 }} exit={{ opacity: 0, y: -4, scaleY: 0.8 }}
+                              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
                               className="absolute left-0 right-0 top-full z-50 bg-background border border-border/50 rounded-xl shadow-xl p-3 space-y-1"
-                              onClick={(e) => e.stopPropagation()}>
+                              style={{ transformOrigin: 'top' }} onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-between mb-2">
                                 <div className="text-xs font-medium text-muted-foreground">{day} — {allItems.length} элементов</div>
                                 <button onClick={(e) => { e.stopPropagation(); setCalReminderDate(dateStr); setShowCalendarReminder(true); setExpandedDay(null); }}
@@ -450,12 +487,27 @@ export default function App() {
                                 </button>
                               </div>
                               {allItems.map(item => (
-                                <div key={item.type + item.id} onClick={() => { if (item.type === 'note') handleNoteSelect(item.id); setExpandedDay(null); }}
-                                  className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-muted cursor-pointer text-sm">
-                                  <span className="flex items-center gap-1.5 truncate">
-                                    {item.type === 'reminder' && <Bell size={10} className="text-amber-500 shrink-0" />}
+                                <div key={item.type + item.id}
+                                  className="text-sm text-foreground/80 hover:bg-muted/50 rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2 group/item">
+                                  <div className="flex-1 min-w-0 cursor-pointer flex items-center gap-2 truncate" onClick={() => { handleNoteSelect(item.type === 'reminder' ? item.noteId : item.id); setViewMode('preview'); setExpandedDay(null); }}>
+                                    {item.type === 'reminder' && <><Bell size={12} className="text-amber-500 shrink-0" /><span className="text-[10px] text-amber-500 shrink-0">{(item.time || '').slice(11, 16)}</span></>}
                                     <span className="truncate">{item.title}</span>
-                                  </span>
+                                  </div>
+                                  {item.type === 'reminder' && (
+                                    <button onClick={(e) => {
+                                      e.stopPropagation();
+                                      const reminder = reminders.find((r: any) => r.id === item.id);
+                                      if (reminder) { setEditingReminder(reminder); setShowCalendarReminder(true); setExpandedDay(null); }
+                                    }} className="opacity-0 group-hover/item:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-all shrink-0">
+                                      <Edit3 size={12} />
+                                    </button>
+                                  )}
+                                  <button onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeletingItem({ type: item.type, id: item.id, title: item.title });
+                                  }} className="opacity-0 group-hover/item:opacity-100 p-0.5 text-muted-foreground hover:text-red-500 transition-all shrink-0">
+                                    <X size={12} />
+                                  </button>
                                 </div>
                               ))}
                             </motion.div>
@@ -470,94 +522,138 @@ export default function App() {
           ) : viewMode === 'board' && activeNote ? (
             <motion.div key={`board-${activeNote.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full">
               <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-muted-foreground">Loading board...</div>}>
-                <BoardEditor
-                  content={activeNote.content || ''}
-                  title={activeNote.title || ''}
+                <BoardEditor content={activeNote.content || ''} title={activeNote.title || ''}
                   onChange={(content) => updateNote(activeNote.id, { content })}
                   onTitleChange={(title) => updateNote(activeNote.id, { title })}
-                  noteId={activeNote.id}
-                />
+                  noteId={activeNote.id} />
               </Suspense>
             </motion.div>
           ) : activeNote ? (
-            <motion.div key={`editor-${activeNote.id}`} className="h-full w-full">
-              <Editor 
-                note={activeNote} 
-                allNotes={notes}
-                onUpdate={updateNote} 
-                onWikilinkClick={handleWikilinkClick}
-                onTagClick={(tag) => { setSearchQuery(`#${tag}`); setShowSearch(true); }}
-                isPreview={viewMode === 'preview'}
-              />
+            <motion.div key={`editor-${activeNote.id}`} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -20 }} className="h-full w-full">
+              <Editor note={activeNote} allNotes={availableNotes} onUpdate={updateNote}
+                onWikilinkClick={handleWikilinkClick} onTagClick={handleTagClick}
+                isPreview={viewMode === 'preview'} onShare={() => handleShare('note', activeNote.id)} />
             </motion.div>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-muted-foreground">{t('editor.empty')}</div>
+            <motion.div key="empty" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
+              className="flex-1 flex flex-col items-center justify-center text-center px-8">
+              <Sparkles className="text-primary mb-4 opacity-60" size={32} />
+              <h2 className="font-serif text-4xl text-foreground mb-2">{t('editor.emptyTitle') || 'Ваши заметки'}</h2>
+              <p className="text-muted-foreground max-w-md text-sm leading-relaxed">{t('editor.empty')}</p>
+            </motion.div>
           )}
         </AnimatePresence>
       </main>
 
-      <ShareModal 
-        isOpen={shareModal.isOpen}
-        onClose={() => setShareModal({ ...shareModal, isOpen: false })}
-        resourceId={shareModal.id}
-        resourceType={shareModal.type}
-        resourceName={shareModal.name}
-        baseUrl={baseUrl}
-        onShareStatusChange={(isShared) => {
-          if (shareModal.id) {
-            if (shareModal.type === 'note') {
-              updateNote(shareModal.id, { isSharedByMe: isShared });
-            } else if (shareModal.type === 'folder') {
-              setFolders(prev => prev.map(f => f.id === shareModal.id ? { ...f, isSharedByMe: isShared } : f));
-              api.updateFolder(shareModal.id, { isSharedByMe: isShared });
-            }
-          }
-        }}
-      />
+      {!isFocusMode && (
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out hidden lg:block ${chatOpen ? 'w-80 opacity-100' : 'w-0 opacity-0'}`} style={{ flexShrink: 0 }}>
+          <div className="w-80 h-full">
+            <Chat notes={notes} folders={folders} unlockedFolders={unlockedFolders} activeNoteId={activeNoteId} onNoteClick={handleNoteSelect} api={api} />
+          </div>
+        </div>
+      )}
 
       <AnimatePresence>
-        {showChat && (
-          <>
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setShowChat(false)}
-              className="fixed inset-0 bg-black/20 backdrop-blur-sm z-30 md:hidden"
-            />
-            <motion.div 
-              initial={{ x: 320 }}
-              animate={{ x: 0 }}
-              exit={{ x: 320 }}
-              className="fixed right-0 top-0 bottom-0 z-40 shadow-2xl"
-            >
-              <Chat notes={notes} folders={folders} unlockedFolders={unlockedFolders} activeNoteId={activeNoteId} onNoteClick={handleNoteSelect} api={api} />
-            </motion.div>
-          </>
+        {shareModalOpen && shareResource && (
+          <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)}
+            resourceId={shareResource.id} resourceType={shareResource.type} resourceName={shareResource.name}
+            onShareStatusChange={(isShared) => {
+              if (shareResource.id) {
+                if (shareResource.type === 'note') { setNotes(prev => prev.map(n => n.id === shareResource.id ? { ...n, isSharedByMe: isShared } : n)); }
+                else if (shareResource.type === 'folder') { setFolders(prev => prev.map(f => f.id === shareResource.id ? { ...f, isSharedByMe: isShared } : f)); }
+              }
+            }} />
         )}
       </AnimatePresence>
 
       <AnimatePresence>
         {showSearch && (
-          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] bg-black/60 backdrop-blur-sm px-4">
-            <motion.div className="w-full max-w-2xl bg-card border border-border rounded-xl shadow-2xl overflow-hidden">
-              <div className="flex items-center px-4 py-3 border-b border-border/50">
-                <Search size={20} className="text-muted-foreground mr-3" />
-                <input autoFocus type="text" placeholder={`${t('sidebar.search')}...`} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} className="flex-1 bg-transparent border-none outline-none text-lg text-foreground" />
-                <button onClick={() => setShowSearch(false)} className="p-1 text-muted-foreground"><X size={20} /></button>
+          <div className="fixed inset-0 z-50 flex items-start justify-center pt-[20vh] glass-strong px-4">
+            <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
+              className="w-full max-w-2xl bg-card/95 backdrop-blur-xl border border-border/50 rounded-2xl shadow-premium-lg overflow-hidden ring-1 ring-border/30">
+              <div className="flex items-center px-5 py-4 border-b border-border/50">
+                <Search size={18} className="text-muted-foreground mr-3" />
+                <input autoFocus type="text" placeholder={`${t('sidebar.search')}...`} value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="flex-1 bg-transparent border-none outline-none text-lg text-foreground placeholder-muted-foreground" />
+                <button onClick={() => setShowSearch(false)} className="p-1.5 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors">
+                  <X size={18} />
+                </button>
               </div>
-              <div className="max-h-[60vh] overflow-y-auto p-2">
-                {notes.filter(n => n.title.toLowerCase().includes(searchQuery.toLowerCase()) || n.content.toLowerCase().includes(searchQuery.toLowerCase())).map(note => (
-                  <div key={note.id} onClick={() => handleNoteSelect(note.id)} className="px-4 py-3 rounded-lg cursor-pointer hover:bg-secondary">
-                    <span className="text-primary font-medium">{note.title}</span>
-                    <span className="text-sm text-muted-foreground line-clamp-1 mt-1">{note.content}</span>
-                  </div>
-                ))}
+              <div className="max-h-[60vh] overflow-y-auto p-2 scroll-elegant">
+                {notes.filter(n => {
+                  return (n.title?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+                    (n.content?.toLowerCase() || '').includes(searchQuery.toLowerCase());
+                }).map(note => {
+                  const isLocked = note.folderId && folders.find(f => f.id === note.folderId)?.isProtected && !unlockedFolders.has(note.folderId);
+                  return (
+                    <div key={note.id} onClick={() => handleNoteSelect(note.id)}
+                      className="px-4 py-3 rounded-xl cursor-pointer flex flex-col hover:bg-accent transition-colors relative">
+                      <div className={isLocked ? 'blur-[4px] opacity-70 select-none' : ''}>
+                        <span className="text-primary font-medium">{note.title || t('common.untitled')}</span>
+                        <span className="text-sm text-muted-foreground line-clamp-1 mt-1">{note.content || '...'}</span>
+                      </div>
+                      {isLocked && (
+                        <div className="absolute inset-0 z-10 flex items-center justify-center pointer-events-none">
+                          <Lock size={20} className="text-foreground/50 drop-shadow-md" />
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </motion.div>
           </div>
         )}
       </AnimatePresence>
+
+      <ReminderModal
+        isOpen={showCalendarReminder}
+        onClose={() => { setShowCalendarReminder(false); setEditingReminder(null); }}
+        initialDate={editingReminder ? editingReminder.remind_at?.slice(0, 10) : calReminderDate}
+        initialTime={editingReminder ? editingReminder.remind_at?.slice(11, 16) : undefined}
+        initialRepeat={editingReminder?.repeat_type}
+        initialMessage={editingReminder?.message}
+        initialNoteId={editingReminder?.note_id}
+        notes={notes}
+        isEditing={!!editingReminder}
+        onConfirm={async (data) => {
+          if (editingReminder) { await api.deleteReminder(editingReminder.id); }
+          let noteId = data.note_id || null;
+          if (!noteId && data.note_title) {
+            const note = await api.createNote({ title: data.note_title, content: '' });
+            noteId = note.id;
+          }
+          await api.createReminder({ note_id: noteId, remind_at: data.remind_at, repeat_type: data.repeat_type, message: data.message });
+          const [updatedNotes, updatedReminders] = await Promise.all([api.getNotes(), api.getReminders()]);
+          setNotes(updatedNotes || []);
+          setReminders(updatedReminders || []);
+          setEditingReminder(null);
+        }}
+      />
+
+      {deletingItem && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={() => setDeletingItem(null)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-xs bg-card border border-border/50 rounded-2xl shadow-premium-lg p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-foreground mb-2">Удалить?</h3>
+            <p className="text-sm text-muted-foreground mb-4">{deletingItem.type === 'reminder' ? 'Напоминание' : 'Заметка'} «{deletingItem.title}» будет удалён.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeletingItem(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground rounded-xl hover:bg-muted transition-colors">Отмена</button>
+              <button onClick={async () => {
+                if (deletingItem.type === 'reminder') await api.deleteReminder(deletingItem.id);
+                else await api.deleteNote(deletingItem.id);
+                const [updatedNotes, updatedReminders] = await Promise.all([api.getNotes(), api.getReminders()]);
+                setNotes(updatedNotes || []);
+                setReminders(updatedReminders || []);
+                setDeletingItem(null);
+              }} className="px-4 py-2 text-sm bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors">Удалить</button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
+    </ErrorBoundary>
   );
 }
