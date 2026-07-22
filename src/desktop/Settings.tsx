@@ -40,7 +40,7 @@ function GoogleCalendarSection() {
 
   const handleConnect = async () => {
     if (!clientId || !clientSecret) {
-      alert(t('settings.calendarEnterCredentials') || 'РЎРЅР°С‡Р°Р»Р° РІРІРµРґРёС‚Рµ Client ID Рё Client Secret');
+      alert(t('settings.calendarEnterCredentials') || 'Сначала введите Client ID и Client Secret');
       return;
     }
     const res = await api.getCalendarAuthUrl();
@@ -115,7 +115,7 @@ function GoogleCalendarSection() {
             onClick={handleSaveCredentials}
             className="px-3 py-1.5 text-xs rounded-lg bg-muted text-muted-foreground hover:bg-muted/80 transition-colors"
           >
-            {saved ? 'вњ“' : t('settings.save')}
+            {saved ? '✓' : t('settings.save')}
           </button>
         </div>
       )}
@@ -131,11 +131,12 @@ type SettingsProps = {
 
 export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   const { language, setLanguage, t } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'bots' | 'users' | 'profile' | 'logs'>('general');
+  const [activeTab, setActiveTab] = useState<'connection' | 'general' | 'ai' | 'bots' | 'users' | 'profile' | 'logs'>('connection');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [newPassword, setNewPassword] = useState('');
   const [logs, setLogs] = useState('');
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
+  const [syncConfig, setSyncConfig] = useState({ server_url: '', username: '', password: '' });
   
   // Proxy State
   const [proxyConfig, setProxyConfig] = useState({
@@ -160,7 +161,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   // AI Tab State
   const [aiChatModel, setAiChatModel] = useState('auto');
   const [aiSummaryModel, setAiSummaryModel] = useState('auto');
-  const [aiSystemPrompt, setAiSystemPrompt] = useState('РўС‹ вЂ” VibeMind AI, СѓРјРЅС‹Р№ РїРѕРјРѕС‰РЅРёРє РґР»СЏ СЂР°Р±РѕС‚С‹ СЃ Р·Р°РјРµС‚РєР°РјРё. РћС‚РІРµС‡Р°Р№ РєСЂР°С‚РєРѕ Рё РїРѕ РґРµР»Сѓ РЅР° СЏР·С‹РєРµ РїРѕР»СЊР·РѕРІР°С‚РµР»СЏ.');
+  const [aiSystemPrompt, setAiSystemPrompt] = useState('Ты — VibeMind AI, умный помощник для работы с заметками. Отвечай кратко и по делу на языке пользователя.');
   const [aiTemperature, setAiTemperature] = useState(0.7);
   const [aiMaxTokens, setAiMaxTokens] = useState(2048);
   const [ragStats, setRagStats] = useState<any>(null);
@@ -525,6 +526,9 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
       <div className="flex flex-1 overflow-hidden">
         {/* Sidebar Tabs */}
         <div className="w-64 border-r border-border/50 p-4 space-y-1 overflow-y-auto scroll-elegant">
+          <button onClick={() => setActiveTab('connection')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'connection' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Server size={16} className="mr-3" /> {t('settings.connection')}
+          </button>
           <button onClick={() => setActiveTab('general')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'general' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
             <Globe size={16} className="mr-3" /> {t('settings.general')}
           </button>
@@ -552,7 +556,48 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
         {/* Tab Content */}
         <div className="flex-1 overflow-y-auto p-8 scroll-elegant">
           <div className="max-w-3xl mx-auto space-y-8">
-            
+
+            {activeTab === 'connection' && (
+              <section className="space-y-6">
+                <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.connection')}</h3>
+                <p className="text-sm text-muted-foreground">{t('settings.connectionDesc')}</p>
+                <div className="bg-card p-5 rounded-xl border border-border/50 space-y-4">
+                  <div>
+                    <label className="block text-sm text-muted-foreground mb-1">{t('settings.serverUrl')}</label>
+                    <input type="text" value={syncConfig.server_url} onChange={(e) => setSyncConfig({ ...syncConfig, server_url: e.target.value })}
+                      placeholder="http://localhost:3344" className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm text-muted-foreground mb-1">{t('settings.username')}</label>
+                      <input type="text" value={syncConfig.username} onChange={(e) => setSyncConfig({ ...syncConfig, username: e.target.value })}
+                        placeholder="admin" className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
+                    </div>
+                    <div>
+                      <label className="block text-sm text-muted-foreground mb-1">{t('settings.password')}</label>
+                      <input type="password" value={syncConfig.password} onChange={(e) => setSyncConfig({ ...syncConfig, password: e.target.value })}
+                        placeholder="••••••" className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-2">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs text-muted-foreground">{t('settings.status')}:</span>
+                      <span className="text-xs text-muted-foreground">{t('settings.notTested')}</span>
+                    </div>
+                    <button onClick={async () => {
+                      try {
+                        await api.updateSettings(syncConfig);
+                        setSaveSuccess(true);
+                        setTimeout(() => setSaveSuccess(false), 2000);
+                      } catch (e) { console.error(e); }
+                    }} className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors flex items-center text-sm">
+                      {saveSuccess ? <><Check size={14} className="mr-1" /> {t('settings.saved')}</> : t('settings.save')}
+                    </button>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {activeTab === 'general' && (
               <>
                 <section className="space-y-4">
@@ -615,7 +660,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.language')}</h3>
                   <div className="flex items-center space-x-4 bg-card p-4 rounded-lg border border-border/50">
                     <button onClick={() => setLanguage('EN')} className={`px-4 py-2 rounded-lg transition-colors ${language === 'EN' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>English</button>
-                    <button onClick={() => setLanguage('RU')} className={`px-4 py-2 rounded-lg transition-colors ${language === 'RU' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>Р СѓСЃСЃРєРёР№</button>
+                    <button onClick={() => setLanguage('RU')} className={`px-4 py-2 rounded-lg transition-colors ${language === 'RU' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>Русский</button>
                   </div>
                 </section>
 
@@ -812,7 +857,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
             {activeTab === 'ai' && (
               <div className="space-y-8">
-                {/* Active Provider вЂ” compact dropdown */}
+                {/* Active Provider — compact dropdown */}
                 <section className="space-y-4">
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiProviders')}</h3>
                   <div className="bg-card p-4 rounded-xl border border-border/50 flex items-center space-x-4">
@@ -835,8 +880,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         <option value="__custom__">{t('settings.aiAddCustom')}</option>
                         {providers.map(p => (
                           <option key={p.id} value={p.id}>
-                            {p.label} вЂ” {p.modelName || '...'}
-                            {p.status === 'connected' ? ' вњ“' : p.status === 'error' ? ' вњ—' : ''}
+                            {p.label} — {p.modelName || '...'}
+                            {p.status === 'connected' ? ' ✓' : p.status === 'error' ? ' ✗' : ''}
                           </option>
                         ))}
                       </select>
@@ -857,7 +902,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                 {providers.filter(p => p.isActive).map(provider => (
                   <section key={provider.id} className="space-y-4">
                     <h3 className="font-serif text-xl font-semibold text-foreground">
-                      {provider.label} вЂ” {t('settings.configuration')}
+                      {provider.label} — {t('settings.configuration')}
                     </h3>
                     <div className="bg-card p-5 rounded-xl border border-border/50 space-y-4">
                       {provider.provider === 'custom' && (
@@ -968,7 +1013,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                   </section>
                 ))}
 
-                {/* Per-task Model Selection вЂ” Chat & Summary only */}
+                {/* Per-task Model Selection — Chat & Summary only */}
                 <section className="space-y-4">
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiTaskModels')}</h3>
                   <p className="text-sm text-muted-foreground">{t('settings.aiTaskModelsDesc')}</p>
@@ -983,7 +1028,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         >
                           <option value="auto">{t('settings.aiAuto')} ({t('settings.aiDefault')})</option>
                           {providers.map(p => (
-                            <option key={p.id} value={p.id}>{p.label} вЂ” {p.modelName}</option>
+                            <option key={p.id} value={p.id}>{p.label} — {p.modelName}</option>
                           ))}
                         </select>
                       </div>
@@ -996,7 +1041,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         >
                           <option value="auto">{t('settings.aiAuto')} ({t('settings.aiDefault')})</option>
                           {providers.map(p => (
-                            <option key={p.id} value={p.id}>{p.label} вЂ” {p.modelName}</option>
+                            <option key={p.id} value={p.id}>{p.label} — {p.modelName}</option>
                           ))}
                         </select>
                       </div>
@@ -1082,7 +1127,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                   <div className="bg-card p-5 rounded-xl border border-border/50">
                     <div className="flex items-center justify-center space-x-8">
                       <div className="text-center">
-                        <div className="text-3xl font-bold text-primary">{ragStats?.total_notes ?? 'вЂ”'}</div>
+                        <div className="text-3xl font-bold text-primary">{ragStats?.total_notes ?? '—'}</div>
                         <div className="text-xs text-muted-foreground mt-1">{t('settings.aiTotalNotes')}</div>
                       </div>
                     </div>
@@ -1207,7 +1252,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         <label className="block text-xs uppercase text-muted-foreground mb-1">{t('settings.passwordOptional')}</label>
                         <div className="relative">
                           <Lock size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                          <input type="password" value={proxyConfig.password} onChange={(e) => setProxyConfig({ ...proxyConfig, password: e.target.value })} placeholder="вЂўвЂўвЂўвЂў" className="w-full bg-background border border-border rounded-lg pl-9 p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
+                          <input type="password" value={proxyConfig.password} onChange={(e) => setProxyConfig({ ...proxyConfig, password: e.target.value })} placeholder="••••" className="w-full bg-background border border-border rounded-lg pl-9 p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
                         </div>
                       </div>
                     </div>
@@ -1241,7 +1286,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       type="password" 
                       value={newPassword} 
                       onChange={(e) => setNewPassword(e.target.value)} 
-                      placeholder="вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў" 
+                      placeholder="••••••••" 
                       className="w-full bg-background border border-border rounded-lg p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" 
                     />
                   </div>

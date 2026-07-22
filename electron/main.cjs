@@ -109,7 +109,8 @@ function createWindow() {
       nodeIntegration: false,
     },
     title: "VibeMind Desktop",
-    autoHideMenuBar: true
+    autoHideMenuBar: true,
+    icon: path.join(__dirname, '..', 'build', 'icon.png')
   });
 
   mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
