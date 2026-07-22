@@ -329,8 +329,8 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   const relatedNotes = allNotes.filter(n => 
     n.id !== note.id && 
     (n.title.split(' ').some(word => word.length > 3 && note.title.includes(word)) || 
-     n.content.includes(`[[${note.title}]]`) ||
-     note.content.includes(`[[${n.title}]]`))
+     (n.content || '').includes(`[[${note.title}]]`) ||
+     (note.content || '').includes(`[[${n.title}]]`))
   ).slice(0, 3);
 
   return (
