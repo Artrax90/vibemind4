@@ -351,8 +351,9 @@ export default function App() {
       )}
 
       <main className="flex-1 flex flex-col relative border-r min-w-0 border-border/50">
+        {/* Desktop toolbar — top */}
         {!showSettings && (
-          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-10 flex items-center space-x-1 rounded-full glass-strong p-1 shadow-premium-lg ring-1 ring-border/50">
+          <div className="hidden md:flex absolute top-6 left-1/2 -translate-x-1/2 z-10 items-center space-x-1 rounded-full bg-background/90 p-1 shadow-premium-lg ring-1 ring-border/50">
             <button onClick={() => setViewMode('edit')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'edit' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.editMode')}><Edit3 size={16} /></button>
             <button onClick={() => setViewMode('preview')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'preview' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.previewMode')}><Eye size={16} /></button>
             <button onClick={() => setViewMode('graph')} className={`p-2 rounded-full flex items-center transition-all duration-200 ${viewMode === 'graph' ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`} title={t('app.graphView')}><Network size={16} /></button>
@@ -362,8 +363,24 @@ export default function App() {
           </div>
         )}
 
+        {/* Mobile toolbar — bottom bar */}
         {!showSettings && (
-          <div className="absolute top-6 right-20 z-10 flex items-center gap-2">
+          <div className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-background border-t border-border/50 px-2 py-2 safe-area-bottom">
+            <div className="flex items-center justify-around">
+              <button onClick={() => setIsMobileMenuOpen(true)} className="p-3 rounded-xl text-muted-foreground active:bg-muted"><Menu size={22} /></button>
+              <button onClick={() => setViewMode('edit')} className={`p-3 rounded-xl ${viewMode === 'edit' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground active:bg-muted'}`}><Edit3 size={22} /></button>
+              <button onClick={() => setViewMode('preview')} className={`p-3 rounded-xl ${viewMode === 'preview' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground active:bg-muted'}`}><Eye size={22} /></button>
+              <button onClick={() => setViewMode('graph')} className={`p-3 rounded-xl ${viewMode === 'graph' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground active:bg-muted'}`}><Network size={22} /></button>
+              <button onClick={() => setViewMode('stats')} className={`p-3 rounded-xl ${viewMode === 'stats' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground active:bg-muted'}`}><BarChart3 size={22} /></button>
+              <button onClick={() => setViewMode('calendar')} className={`p-3 rounded-xl ${viewMode === 'calendar' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground active:bg-muted'}`}><Calendar size={22} /></button>
+              <button onClick={() => setViewMode('bento')} className={`p-3 rounded-xl ${viewMode === 'bento' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground active:bg-muted'}`}><LayoutGrid size={22} /></button>
+            </div>
+          </div>
+        )}
+
+        {/* Desktop notifications — top right */}
+        {!showSettings && (
+          <div className="hidden md:flex absolute top-6 right-20 z-10 items-center gap-2">
             <button onClick={() => setChatOpen(!chatOpen)} title={chatOpen ? 'Hide chat' : 'Show chat'}
               className={`p-2 rounded-full transition-all duration-200 ${chatOpen ? 'bg-foreground text-background' : 'text-muted-foreground hover:bg-foreground/5 hover:text-foreground'}`}>
               <MessageSquare size={16} />
@@ -381,7 +398,7 @@ export default function App() {
 
         <AnimatePresence mode="wait">
           {showSettings ? (
-            <motion.div key="settings" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="h-full w-full">
+            <motion.div key="settings" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -20 }} className="h-full w-full pb-16 md:pb-0">
               <Settings onClose={() => setShowSettings(false)} theme={theme} setTheme={handleSetTheme} />
             </motion.div>
           ) : viewMode === 'graph' ? (
