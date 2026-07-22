@@ -321,7 +321,7 @@ export default function App() {
       )}
 
       {!isFocusMode && (
-        <div className={`overflow-hidden transition-all duration-300 ease-in-out hidden md:block ${sidebarOpen ? 'w-60 opacity-100' : 'w-0 opacity-0'}`} style={{ flexShrink: 0 }}>
+        <div className={`overflow-hidden transition-all duration-300 ease-in-out ${sidebarOpen ? 'w-60 opacity-100' : 'w-0 opacity-0'} ${isMobileMenuOpen ? 'fixed inset-y-0 left-0 z-50 w-60 opacity-100 bg-background shadow-2xl' : 'hidden md:block'}`} style={{ flexShrink: 0 }}>
           <div className="w-60 h-full">
             <Sidebar
               notes={notes} folders={folders} unlockedFolders={unlockedFolders}
