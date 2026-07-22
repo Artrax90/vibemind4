@@ -4,6 +4,11 @@ let cachedToken: string | null = null;
 let lastTokenFetch = 0;
 const TOKEN_EXPIRY = 1000 * 60 * 60; // 1 hour
 
+export const getAuthHeaders = () => {
+  const token = localStorage.getItem('access_token');
+  return token ? { 'Authorization': `Bearer ${token}` } : {};
+};
+
 export const api = {
   async getSettings() {
     const config = await dbApi.getSyncConfig();
@@ -582,6 +587,46 @@ ${context}
     });
     if (!res.ok) throw new Error('Failed to delete share');
     return true;
+  },
+
+  async getReminders(): Promise<any[]> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) return [];
+    const token = await this.getServerToken();
+    if (!token) return [];
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/reminders`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) return [];
+    return await res.json();
+  },
+
+  async createReminder(data: any): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) throw new Error('Not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('No token');
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/reminders`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Failed to create reminder');
+    return await res.json();
+  },
+
+  async deleteReminder(id: string): Promise<void> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) return;
+    const token = await this.getServerToken();
+    if (!token) return;
+    const url = this.getNormalizedUrl();
+    await fetch(`${url}/api/reminders/${id}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
   },
 
   async clearLocalData() {

@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, Suspense } from 'react';
 import Sidebar from '../components/Sidebar';
 import Editor from './Editor';
 import Settings from './Settings';
 import GraphView from '../components/GraphView';
 import Chat from '../components/Chat';
 import ShareModal from '../components/ShareModal';
+import BentoGrid from '../components/BentoGrid';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, RefreshCw, MessageSquare } from 'lucide-react';
+import { Network, Edit3, Eye, Search, X, Menu, RefreshCw, MessageSquare, BarChart3, Calendar, LayoutGrid, FileText, Hash, ChevronLeft, ChevronRight, Plus, Bell, Trash2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { useSync } from '../contexts/SyncContext';
 import { Capacitor } from '@capacitor/core';
@@ -15,6 +16,8 @@ import { api } from './client';
 import SyncManager from '../components/SyncManager';
 import { Note, Folder } from '../types';
 
+const BoardEditor = React.lazy(() => import('../components/BoardEditor'));
+
 (window as any).desktopApi = api;
 
 export default function App() {
@@ -22,7 +25,7 @@ export default function App() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [folders, setFolders] = useState<Folder[]>([]);
   const [activeNoteId, setActiveNoteId] = useState<string | null>(null);
-  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph'>('preview');
+  const [viewMode, setViewMode] = useState<'edit' | 'preview' | 'graph' | 'stats' | 'calendar' | 'bento' | 'board'>('preview');
   const [showSettings, setShowSettings] = useState(false);
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -34,6 +37,12 @@ export default function App() {
   const [showChat, setShowChat] = useState(false);
   const [baseUrl, setBaseUrl] = useState<string>('');
   const [unlockedFolders, setUnlockedFolders] = useState<Set<string>>(new Set());
+  const [reminders, setReminders] = useState<any[]>([]);
+  const [expandedDay, setExpandedDay] = useState<string | null>(null);
+  const [calMonth, setCalMonth] = useState(new Date().getMonth());
+  const [calYear, setCalYear] = useState(new Date().getFullYear());
+  const [showCalendarReminder, setShowCalendarReminder] = useState(false);
+  const [calReminderDate, setCalReminderDate] = useState('');
 
   // Share Modal State
   const [shareModal, setShareModal] = useState<{
@@ -105,6 +114,12 @@ export default function App() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (viewMode === 'calendar') {
+      api.getReminders?.().then(r => setReminders(r || [])).catch(() => {});
+    }
+  }, [viewMode]);
+
   const handleSyncComplete = useCallback(() => {
     loadData();
     // Force editor refresh if active note was updated
@@ -119,6 +134,11 @@ export default function App() {
     setViewMode(mode);
     setShowSearch(false);
     setIsMobileMenuOpen(false);
+    // Auto-detect board
+    const note = notes.find(n => n.id === id);
+    if (note?.content?.includes('<!-- board:')) {
+      setViewMode('board');
+    }
   };
 
   const activeNote = notes.find(n => n.id === activeNoteId);
@@ -140,6 +160,17 @@ export default function App() {
   const addFolder = async (newFolder: Folder) => {
     setFolders(prev => [...prev, newFolder]);
     await api.createFolder(newFolder);
+  };
+
+  const addBoard = async () => {
+    const newNote: Note = {
+      id: `n${Date.now()}`,
+      title: `${t('common.newBoard') || 'Доска'} ${notes.length + 1}`,
+      content: '<!-- board:{"items":[]} -->',
+      permission: 'owner'
+    };
+    await addNote(newNote);
+    setViewMode('board');
   };
 
   const deleteNote = async (id: string) => {
@@ -241,6 +272,11 @@ export default function App() {
           onDeleteFolder={deleteFolder}
           onRenameFolder={renameFolder}
           onShare={handleShare}
+          onSwitchView={(mode) => setViewMode(mode as any)}
+          onAddBoard={addBoard}
+          smartFilter=""
+          onSmartFilter={() => {}}
+          onSelectFolder={() => {}}
           onQuit={!Capacitor.isNativePlatform() ? handleQuit : undefined}
           onClose={() => setIsMobileMenuOpen(false)}
         />
@@ -293,6 +329,9 @@ export default function App() {
             </button>
             <button onClick={() => setViewMode('preview')} className={`p-2 rounded-lg ${viewMode === 'preview' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}><Eye size={18} /></button>
             <button onClick={() => setViewMode('graph')} className={`p-2 rounded-lg ${viewMode === 'graph' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`}><Network size={18} /></button>
+            <button onClick={() => setViewMode('stats')} className={`p-2 rounded-lg ${viewMode === 'stats' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`} title={t('app.stats')}><BarChart3 size={18} /></button>
+            <button onClick={() => setViewMode('calendar')} className={`p-2 rounded-lg ${viewMode === 'calendar' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`} title={t('app.calendar')}><Calendar size={18} /></button>
+            <button onClick={() => setViewMode('bento')} className={`p-2 rounded-lg ${viewMode === 'bento' ? 'bg-primary/20 text-primary' : 'text-muted-foreground'}`} title={t('app.bento')}><LayoutGrid size={18} /></button>
             <div className="w-px h-4 bg-border/50 mx-1" />
             <button 
               onClick={() => setShowChat(!showChat)} 
@@ -312,6 +351,133 @@ export default function App() {
           ) : viewMode === 'graph' ? (
             <motion.div key="graph" className="h-full w-full">
               <GraphView notes={notes} activeNoteId={activeNoteId} onNodeClick={handleNoteSelect} />
+            </motion.div>
+          ) : viewMode === 'stats' ? (
+            <motion.div key="stats" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="h-full w-full p-8 scroll-elegant">
+              <h2 className="font-serif text-3xl font-bold text-foreground mb-6">{t('stats.title')}</h2>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+                {[
+                  { label: t('stats.totalNotes'), value: notes.length, icon: FileText },
+                  { label: t('stats.totalWords'), value: notes.reduce((acc, n) => acc + (n.content || '').split(/\s+/).filter(Boolean).length, 0), icon: Edit3 },
+                  { label: t('stats.totalLinks'), value: notes.reduce((acc, n) => acc + ((n.content || '').match(/\[\[/g) || []).length, 0), icon: Network },
+                  { label: t('stats.totalTags'), value: new Set((notes.flatMap(n => (n.content || '').match(/#\w+/g) || [])).map(t => t.toLowerCase())).size, icon: Hash },
+                ].map(({ label, value, icon: Icon }) => (
+                  <div key={label} className="bg-card rounded-xl border border-border/50 p-4 shadow-premium">
+                    <Icon size={20} className="text-primary mb-2" />
+                    <div className="text-2xl font-bold text-foreground">{value}</div>
+                    <div className="text-xs text-muted-foreground">{label}</div>
+                  </div>
+                ))}
+              </div>
+              <h3 className="font-serif text-xl font-semibold text-foreground mb-3">{t('stats.topTags')}</h3>
+              <div className="flex flex-wrap gap-2">
+                {(() => {
+                  const tagCounts: Record<string, number> = {};
+                  notes.forEach(n => {
+                    const matches = (n.content || '').match(/#\w+/g);
+                    if (matches) matches.forEach(tag => { tagCounts[tag.toLowerCase()] = (tagCounts[tag.toLowerCase()] || 0) + 1; });
+                  });
+                  return Object.entries(tagCounts).sort((a, b) => b[1] - a[1]).slice(0, 20).map(([tag, count]) => (
+                    <span key={tag} className="px-3 py-1 rounded-full bg-accent text-accent-foreground text-sm">{tag} ({count})</span>
+                  ));
+                })()}
+              </div>
+            </motion.div>
+          ) : viewMode === 'bento' ? (
+            <motion.div key="bento" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="h-full w-full">
+              <BentoGrid
+                notes={notes.filter(n => !n.folderId || folders.some(f => f.id === n.folderId && (!f.isProtected || unlockedFolders.has(f.id))))}
+                folders={folders}
+                activeNoteId={activeNoteId}
+                onNoteClick={handleNoteSelect}
+              />
+            </motion.div>
+          ) : viewMode === 'calendar' ? (
+            <motion.div key="calendar" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="h-full w-full px-8 pt-4 pb-8 scroll-elegant relative" onClick={() => expandedDay && setExpandedDay(null)}>
+              <div className="flex items-center mb-6">
+                <h2 className="font-serif text-2xl font-bold text-foreground">{new Date(calYear, calMonth).toLocaleDateString('ru-RU', { month: 'long', year: 'numeric' })}</h2>
+                <div className="flex items-center gap-1 ml-4">
+                  <button onClick={() => { setCalMonth(m => m === 0 ? 11 : m - 1); if (calMonth === 0) setCalYear(y => y - 1); setExpandedDay(null); }}
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><ChevronLeft size={16} /></button>
+                  <button onClick={() => { setCalMonth(m => m === 11 ? 0 : m + 1); if (calMonth === 11) setCalYear(y => y + 1); setExpandedDay(null); }}
+                    className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"><ChevronRight size={16} /></button>
+                </div>
+              </div>
+              <div className="grid grid-cols-7 gap-2">
+                {['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'].map(d => (
+                  <div key={d} className="text-center text-xs font-medium text-muted-foreground py-2">{d}</div>
+                ))}
+                {(() => {
+                  const firstDay = new Date(calYear, calMonth, 1).getDay();
+                  const daysInMonth = new Date(calYear, calMonth + 1, 0).getDate();
+                  const cells = [];
+                  for (let i = 0; i < (firstDay === 0 ? 6 : firstDay - 1); i++) cells.push(null);
+                  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+                  return cells.map((day, i) => {
+                    if (!day) return <div key={i} />;
+                    const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                    const dayNotes = notes.filter(n => (n.updatedAt || '').startsWith(dateStr));
+                    const dayReminders = reminders.filter(r => (r.remind_at || '').startsWith(dateStr));
+                    const allItems = [...dayNotes.map(n => ({ type: 'note' as const, id: n.id, title: n.title })), ...dayReminders.map(r => ({ type: 'reminder' as const, id: r.id, noteId: r.note_id, title: r.message || 'Напоминание', time: r.remind_at }))];
+                    const expanded = expandedDay === dateStr;
+                    const today = new Date();
+                    const isToday = today.getDate() === day && today.getMonth() === calMonth && today.getFullYear() === calYear;
+                    return (
+                      <div key={i} className="relative">
+                        <div onClick={(e) => { e.stopPropagation(); setExpandedDay(expanded ? null : dateStr); }}
+                          className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-1 ring-primary/30' : dayReminders.length > 0 ? 'border-violet-500/80 bg-violet-200 ring-2 ring-violet-400/60 dark:bg-violet-950/20 dark:ring-violet-300/30' : allItems.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'} ${expanded ? 'shadow-lg' : ''}`}>
+                          <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
+                          {allItems.slice(0, 2).map(item => (
+                            <div key={item.type + item.id} className="text-xs truncate text-foreground/80 flex items-center gap-1">
+                              {item.type === 'reminder' && <Bell size={8} className="text-amber-500 shrink-0" />}
+                              {item.title}
+                            </div>
+                          ))}
+                          {!expanded && allItems.length > 2 && (
+                            <div className="text-xs text-primary font-medium mt-0.5">+{allItems.length - 2}</div>
+                          )}
+                        </div>
+                        <AnimatePresence>
+                          {expanded && (
+                            <motion.div initial={{ opacity: 0, y: -4 }} animate={{ opacity: 1, y: 4 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.2 }}
+                              className="absolute left-0 right-0 top-full z-50 bg-background border border-border/50 rounded-xl shadow-xl p-3 space-y-1"
+                              onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="text-xs font-medium text-muted-foreground">{day} — {allItems.length} элементов</div>
+                                <button onClick={(e) => { e.stopPropagation(); setCalReminderDate(dateStr); setShowCalendarReminder(true); setExpandedDay(null); }}
+                                  className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-medium transition-colors">
+                                  <Plus size={12} /> Напоминание
+                                </button>
+                              </div>
+                              {allItems.map(item => (
+                                <div key={item.type + item.id} onClick={() => { if (item.type === 'note') handleNoteSelect(item.id); setExpandedDay(null); }}
+                                  className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-muted cursor-pointer text-sm">
+                                  <span className="flex items-center gap-1.5 truncate">
+                                    {item.type === 'reminder' && <Bell size={10} className="text-amber-500 shrink-0" />}
+                                    <span className="truncate">{item.title}</span>
+                                  </span>
+                                </div>
+                              ))}
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
+                    );
+                  });
+                })()}
+              </div>
+            </motion.div>
+          ) : viewMode === 'board' && activeNote ? (
+            <motion.div key={`board-${activeNote.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="h-full w-full">
+              <Suspense fallback={<div className="h-full w-full flex items-center justify-center text-muted-foreground">Loading board...</div>}>
+                <BoardEditor
+                  content={activeNote.content || ''}
+                  title={activeNote.title || ''}
+                  onChange={(content) => updateNote(activeNote.id, { content })}
+                  onTitleChange={(title) => updateNote(activeNote.id, { title })}
+                  noteId={activeNote.id}
+                />
+              </Suspense>
             </motion.div>
           ) : activeNote ? (
             <motion.div key={`editor-${activeNote.id}`} className="h-full w-full">
