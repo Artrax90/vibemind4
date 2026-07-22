@@ -1,8 +1,15 @@
 node_modules/
 build/
+!build/icon.png
 dist/
+dist-electron/
 coverage/
 .DS_Store
 *.log
 .env*
 !.env.example
+vosk-model/
+build_error.txt
+build_output.txt
+*.sqlite
+.vscode/
