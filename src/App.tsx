@@ -8,10 +8,11 @@ import GraphView from './components/GraphView';
 import BentoGrid from './components/BentoGrid';
 import NotificationsPanel from './components/NotificationsPanel';
 import ShareModal from './components/ShareModal';
+import ReminderModal from './components/ReminderModal';
 import SharedNoteView from './components/SharedNoteView';
 import Login from './pages/Login';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, Layout, MessageSquare, PanelLeftOpen, ChevronLeft, ChevronRight, Bell } from 'lucide-react';
+import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, Layout, MessageSquare, PanelLeftOpen, ChevronLeft, ChevronRight, Bell, Plus } from 'lucide-react';
 
 const BoardEditor = React.lazy(() => import('./components/BoardEditor'));
 import { useLanguage } from './contexts/LanguageContext';
@@ -79,6 +80,10 @@ export default function App() {
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
   const [reminders, setReminders] = useState<any[]>([]);
+  const [showCalendarReminder, setShowCalendarReminder] = useState(false);
+  const [calReminderDate, setCalReminderDate] = useState('');
+  const [editingReminder, setEditingReminder] = useState<any>(null);
+  const [deletingItem, setDeletingItem] = useState<{ type: string; id: string; title: string } | null>(null);
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [smartFilter, setSmartFilter] = useState<string | null>(null);
@@ -579,7 +584,7 @@ export default function App() {
                     const isToday = today.getDate() === day && today.getMonth() === calMonth && today.getFullYear() === calYear;
                     return (
                       <div key={i} className="relative">
-                        <div onClick={(e) => { e.stopPropagation(); if (!expanded && allItems.length > 0) setExpandedDay(expanded ? null : dateStr); }}
+                        <div onClick={(e) => { e.stopPropagation(); setExpandedDay(expanded ? null : dateStr); }}
                           className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-1 ring-primary/30' : dayReminders.length > 0 ? 'border-violet-500/80 bg-violet-200 ring-2 ring-violet-400/60 dark:bg-violet-950/20 dark:ring-violet-300/30' : allItems.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'} ${expanded ? 'shadow-lg' : ''}`}>
                           <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
                           {allItems.slice(0, 2).map(item => (
@@ -603,12 +608,35 @@ export default function App() {
                               style={{ transformOrigin: 'top' }}
                               onClick={(e) => e.stopPropagation()}
                             >
-                              <div className="text-xs font-medium text-muted-foreground mb-2">{day} — {allItems.length} элементов</div>
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="text-xs font-medium text-muted-foreground">{day} — {allItems.length} элементов</div>
+                                <button onClick={(e) => { e.stopPropagation(); setCalReminderDate(dateStr); setShowCalendarReminder(true); setExpandedDay(null); }}
+                                  className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-medium transition-colors">
+                                  <Plus size={12} /> Напоминание
+                                </button>
+                              </div>
                               {allItems.map(item => (
-                                <div key={item.type + item.id} onClick={() => { handleNoteSelect(item.type === 'reminder' ? item.noteId : item.id); setViewMode('preview'); setExpandedDay(null); }}
-                                  className="text-sm truncate text-foreground/80 cursor-pointer hover:text-primary hover:bg-muted/50 rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2">
-                                  {item.type === 'reminder' && <><Bell size={12} className="text-amber-500 shrink-0" /><span className="text-[10px] text-amber-500 shrink-0">{(item.time || '').slice(11, 16)}</span></>}
-                                  {item.title}
+                                <div key={item.type + item.id}
+                                  className="text-sm text-foreground/80 hover:bg-muted/50 rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2 group/item">
+                                  <div className="flex-1 min-w-0 cursor-pointer flex items-center gap-2 truncate" onClick={() => { handleNoteSelect(item.type === 'reminder' ? item.noteId : item.id); setViewMode('preview'); setExpandedDay(null); }}>
+                                    {item.type === 'reminder' && <><Bell size={12} className="text-amber-500 shrink-0" /><span className="text-[10px] text-amber-500 shrink-0">{(item.time || '').slice(11, 16)}</span></>}
+                                    <span className="truncate">{item.title}</span>
+                                  </div>
+                                  {item.type === 'reminder' && (
+                                    <button onClick={(e) => {
+                                      e.stopPropagation();
+                                      const reminder = reminders.find((r: any) => r.id === item.id);
+                                      if (reminder) { setEditingReminder(reminder); setShowCalendarReminder(true); setExpandedDay(null); }
+                                    }} className="opacity-0 group-hover/item:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-all shrink-0">
+                                      <Edit3 size={12} />
+                                    </button>
+                                  )}
+                                  <button onClick={(e) => {
+                                    e.stopPropagation();
+                                    setDeletingItem({ type: item.type, id: item.id, title: item.title });
+                                  }} className="opacity-0 group-hover/item:opacity-100 p-0.5 text-muted-foreground hover:text-red-500 transition-all shrink-0">
+                                    <X size={12} />
+                                  </button>
                                 </div>
                               ))}
                             </motion.div>
@@ -770,6 +798,58 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* Calendar Reminder Modal */}
+      <ReminderModal
+        isOpen={showCalendarReminder}
+        onClose={() => { setShowCalendarReminder(false); setEditingReminder(null); }}
+        initialDate={editingReminder ? editingReminder.remind_at?.slice(0, 10) : calReminderDate}
+        initialTime={editingReminder ? editingReminder.remind_at?.slice(11, 16) : undefined}
+        initialRepeat={editingReminder?.repeat_type}
+        initialMessage={editingReminder?.message}
+        initialNoteId={editingReminder?.note_id}
+        notes={notes}
+        isEditing={!!editingReminder}
+        onConfirm={async (data) => {
+          const { api } = await import('./api/client');
+          if (editingReminder) {
+            await api.deleteReminder(editingReminder.id);
+          }
+          let noteId = data.note_id || null;
+          if (!noteId && data.note_title) {
+            const note = await api.createNote({ title: data.note_title, content: '' });
+            noteId = note.id;
+          }
+          await api.createReminder({ note_id: noteId, remind_at: data.remind_at, repeat_type: data.repeat_type, message: data.message });
+          const [updatedNotes, updatedReminders] = await Promise.all([api.getNotes(), api.getReminders()]);
+          setNotes(updatedNotes || []);
+          setReminders(updatedReminders || []);
+          setEditingReminder(null);
+        }}
+      />
+
+      {/* Delete confirmation */}
+      {deletingItem && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 backdrop-blur-sm px-4" onClick={() => setDeletingItem(null)}>
+          <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}
+            className="w-full max-w-xs bg-card border border-border/50 rounded-2xl shadow-premium-lg p-5" onClick={(e) => e.stopPropagation()}>
+            <h3 className="font-semibold text-foreground mb-2">Удалить?</h3>
+            <p className="text-sm text-muted-foreground mb-4">{deletingItem.type === 'reminder' ? 'Напоминание' : 'Заметка'} «{deletingItem.title}» будет удалён.</p>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeletingItem(null)} className="px-4 py-2 text-sm text-muted-foreground hover:text-foreground rounded-xl hover:bg-muted transition-colors">Отмена</button>
+              <button onClick={async () => {
+                const { api } = await import('./api/client');
+                if (deletingItem.type === 'reminder') await api.deleteReminder(deletingItem.id);
+                else await api.deleteNote(deletingItem.id);
+                const [updatedNotes, updatedReminders] = await Promise.all([api.getNotes(), api.getReminders()]);
+                setNotes(updatedNotes || []);
+                setReminders(updatedReminders || []);
+                setDeletingItem(null);
+              }} className="px-4 py-2 text-sm bg-red-500 text-white rounded-xl hover:bg-red-600 transition-colors">Удалить</button>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

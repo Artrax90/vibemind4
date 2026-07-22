@@ -1,12 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Bell, Calendar, Clock, Repeat } from 'lucide-react';
+import { X, Bell, Calendar, Clock, Repeat, FileText } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 type ReminderModalProps = {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (data: { remind_at: string; repeat_type: string; message: string }) => void;
+  onConfirm: (data: { remind_at: string; repeat_type: string; message: string; note_id?: string; note_title?: string }) => void;
+  initialDate?: string;
+  initialTime?: string;
+  initialRepeat?: string;
+  initialMessage?: string;
+  initialNoteId?: string;
+  notes?: { id: string; title: string; content?: string }[];
+  isEditing?: boolean;
 };
 
 const REPEAT_OPTIONS = [
@@ -14,16 +21,32 @@ const REPEAT_OPTIONS = [
   { value: 'daily', label: 'Каждый день' },
   { value: 'weekly', label: 'Каждую неделю' },
   { value: 'monthly', label: 'Каждый месяц' },
+  { value: 'yearly', label: 'Каждый год' },
 ];
 
-export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderModalProps) {
+export default function ReminderModal({ isOpen, onClose, onConfirm, initialDate, initialTime, initialRepeat, initialMessage, initialNoteId, notes, isEditing }: ReminderModalProps) {
   const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const today = new Date();
-  const [date, setDate] = useState(today.toISOString().split('T')[0]);
+  const [date, setDate] = useState(initialDate || today.toISOString().split('T')[0]);
   const [time, setTime] = useState('09:00');
   const [repeat, setRepeat] = useState('none');
   const [message, setMessage] = useState('');
+  const [selectedNoteId, setSelectedNoteId] = useState('__none__');
+  const [showNoteSelector, setShowNoteSelector] = useState(false);
+  const [newNoteTitle, setNewNoteTitle] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setDate(initialDate || today.toISOString().split('T')[0]);
+      setTime(initialTime || '09:00');
+      setRepeat(initialRepeat || 'none');
+      setMessage(initialMessage || '');
+      setSelectedNoteId(initialNoteId || '__none__');
+      setShowNoteSelector(!!initialNoteId);
+      setNewNoteTitle('');
+    }
+  }, [isOpen, initialDate, initialTime, initialRepeat, initialMessage, initialNoteId]);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -37,7 +60,6 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
     }
   }, [isOpen, onClose]);
 
-  // Quick presets
   const presets = [
     { label: 'Через 1 час', date: (() => { const d = new Date(); d.setHours(d.getHours() + 1); return d; })() },
     { label: 'Завтра', date: (() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0); return d; })() },
@@ -51,7 +73,13 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
 
   const handleConfirm = () => {
     const remindAt = `${date}T${time}:00`;
-    onConfirm({ remind_at: remindAt, repeat_type: repeat, message });
+    const data: any = { remind_at: remindAt, repeat_type: repeat, message };
+    if (selectedNoteId === '__new__') {
+      data.note_title = newNoteTitle || message || 'Напоминание';
+    } else if (selectedNoteId !== '__none__') {
+      data.note_id = selectedNoteId;
+    }
+    onConfirm(data);
     onClose();
   };
 
@@ -75,7 +103,7 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
           <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
             <div className="flex items-center gap-2">
               <Bell size={18} className="text-primary" />
-              <h3 className="font-semibold text-foreground">{t('reminder.title')}</h3>
+              <h3 className="font-semibold text-foreground">{isEditing ? 'Редактирование' : t('reminder.title')}</h3>
             </div>
             <button onClick={onClose} className="p-1 text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors">
               <X size={18} />
@@ -83,6 +111,55 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
           </div>
 
           <div className="p-5 space-y-4">
+            {/* Note binding toggle */}
+            {notes && (
+              <div className="space-y-1.5">
+                {!showNoteSelector ? (
+                  <button onClick={() => setShowNoteSelector(true)}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                    <FileText size={12} /> Привязать к заметке
+                  </button>
+                ) : (
+                  <>
+                    <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                      <FileText size={12} /> Привязать к заметке
+                    </label>
+                    <div className="flex gap-2">
+                      <select
+                        value={selectedNoteId}
+                        onChange={(e) => setSelectedNoteId(e.target.value)}
+                        className="flex-1 px-3 py-2 bg-secondary/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary transition-all"
+                      >
+                        <option value="__none__">Без привязки</option>
+                        <option value="__new__">+ Новая заметка</option>
+                        {notes.map(n => (
+                          <option key={n.id} value={n.id}>{n.title || 'Без названия'}</option>
+                        ))}
+                      </select>
+                      <button onClick={() => { setShowNoteSelector(false); setSelectedNoteId('__none__'); }}
+                        className="px-2 text-xs text-muted-foreground hover:text-foreground rounded-lg hover:bg-muted transition-colors">
+                        ✕
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* New note title */}
+            {selectedNoteId === '__new__' && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Заголовок заметки</label>
+                <input
+                  type="text"
+                  value={newNoteTitle}
+                  onChange={(e) => setNewNoteTitle(e.target.value)}
+                  placeholder="Название новой заметки"
+                  className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all"
+                />
+              </div>
+            )}
+
             {/* Quick presets */}
             <div className="flex gap-2">
               {presets.map(({ label, date: presetDate }) => (
@@ -105,7 +182,6 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                min={today.toISOString().split('T')[0]}
                 className="w-full px-3 py-2 bg-secondary/50 border border-border rounded-xl text-sm text-foreground focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary/30 transition-all"
               />
               <p className="text-[10px] text-muted-foreground/60 ml-1">{formatDate(date)}</p>
@@ -171,7 +247,7 @@ export default function ReminderModal({ isOpen, onClose, onConfirm }: ReminderMo
               onClick={handleConfirm}
               className="px-4 py-2 text-sm bg-primary text-primary-foreground rounded-xl shadow-premium hover:shadow-premium-lg transition-all"
             >
-              {t('reminder.set')}
+              {isEditing ? 'Сохранить' : t('reminder.set')}
             </button>
           </div>
         </motion.div>

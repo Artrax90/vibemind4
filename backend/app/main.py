@@ -197,15 +197,19 @@ async def check_reminders():
                             continue
 
                         # Get the note title
-                        note = db.query(Note).filter(Note.id == reminder.note_id).first()
-                        note_title = note.title if note else "Unknown note"
+                        note_title = None
+                        if reminder.note_id:
+                            note = db.query(Note).filter(Note.id == reminder.note_id).first()
+                            note_title = note.title if note else None
+                        if not note_title:
+                            note_title = reminder.message or 'Напоминание'
 
                         # Send via Telegram using aiogram
                         from aiogram import Bot
                         bot = Bot(token=config.tg_token)
                         admin_id = config.tg_admin_id
                         if admin_id:
-                            message = f"🔔 Напоминание: {note_title}"
+                            message = f"🔔 {note_title}"
                             if reminder.message:
                                 message += f"\n💬 {reminder.message}"
                             message += f"\n⏰ {reminder.remind_at[:16].replace('T', ' ')}"
@@ -224,6 +228,8 @@ async def check_reminders():
                                 next_time = now + timedelta(weeks=1)
                             elif reminder.repeat_type == 'monthly':
                                 next_time = now + timedelta(days=30)
+                            elif reminder.repeat_type == 'yearly':
+                                next_time = now + timedelta(days=365)
 
                             new_reminder = Reminder(
                                 id=str(uuid.uuid4()),
@@ -1493,7 +1499,7 @@ async def summarize_content(req: dict, db: Session = Depends(get_db), current_us
 # ==================== REMINDERS API ====================
 
 class ReminderCreate(BaseModel):
-    note_id: str
+    note_id: Optional[str] = None
     remind_at: str
     repeat_type: Optional[str] = "none"
     message: Optional[str] = None
