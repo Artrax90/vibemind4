@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Globe, Shield, User, Download, Upload, Cpu, Webhook, MessageSquare, Plus, Save, Trash2, CheckCircle, Check, AlertCircle, Database, Edit2, Server, Lock, Key, Sun, Moon, Terminal, RefreshCw, Calendar } from 'lucide-react';
+import { X, Globe, Shield, User, Download, Upload, Cpu, Webhook, MessageSquare, Plus, Save, Trash2, CheckCircle, Check, AlertCircle, Database, Edit2, Server, Lock, Key, Sun, Moon, Terminal, RefreshCw, Calendar, Sparkles, Brain, Zap, TestTube } from 'lucide-react';
 import CreateUserModal from './modals/CreateUserModal';
 import AddDBModal from './modals/AddDBModal';
 import { api, getAuthHeaders } from '../api/client';
@@ -131,7 +131,7 @@ type SettingsProps = {
 
 export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   const { language, setLanguage, t } = useLanguage();
-  const [activeTab, setActiveTab] = useState<'general' | 'integrations' | 'bots' | 'users' | 'profile' | 'logs'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'ai' | 'bots' | 'users' | 'profile' | 'logs'>('general');
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [newPassword, setNewPassword] = useState('');
   const [logs, setLogs] = useState('');
@@ -150,11 +150,24 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
   // AI & LLM State
   const [providers, setProviders] = useState([
+    { id: 'mimo', label: 'Xiaomi MiMo', provider: 'mimo', apiKey: '', baseUrl: 'https://api.xiaomi.com/v1', modelName: 'mimo-auto', isActive: false, status: 'idle' },
     { id: 'openai', label: 'OpenAI', provider: 'openai', apiKey: '', baseUrl: 'https://api.openai.com/v1', modelName: 'gpt-4o-mini', isActive: true, status: 'idle' },
     { id: 'gemini', label: 'Google Gemini', provider: 'gemini', apiKey: '', baseUrl: '', modelName: 'gemini-1.5-flash', isActive: false, status: 'idle' },
     { id: 'openrouter', label: 'OpenRouter', provider: 'openrouter', apiKey: '', baseUrl: 'https://openrouter.ai/api/v1', modelName: 'google/gemini-2.0-flash-001', isActive: false, status: 'idle' },
     { id: 'ollama', label: 'Ollama', provider: 'ollama', apiKey: '', baseUrl: 'http://localhost:11434/v1', modelName: 'llama3', isActive: false, status: 'idle' }
   ]);
+
+  // AI Tab State
+  const [aiChatModel, setAiChatModel] = useState('auto');
+  const [aiSummaryModel, setAiSummaryModel] = useState('auto');
+  const [aiSystemPrompt, setAiSystemPrompt] = useState('Ты — VibeMind AI, умный помощник для работы с заметками. Отвечай кратко и по делу на языке пользователя.');
+  const [aiTemperature, setAiTemperature] = useState(0.7);
+  const [aiMaxTokens, setAiMaxTokens] = useState(2048);
+  const [ragStats, setRagStats] = useState<any>(null);
+  const [testPrompt, setTestPrompt] = useState('');
+  const [testResponse, setTestResponse] = useState('');
+  const [isTestingAI, setIsTestingAI] = useState(false);
+  const [testResult, setTestResult] = useState<{ id: string; ok: boolean; msg: string } | null>(null);
 
   // External DB State
   const [externalDbs, setExternalDbs] = useState<any[]>([]);
@@ -220,17 +233,10 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
     if (activeTab === 'logs' && currentUser?.role === 'admin') {
       fetchLogs();
     }
-    if (activeTab === 'integrations') {
-      console.log('Fetching external DBs...');
+    if (activeTab === 'general') {
       api.getExternalDbs()
-        .then(dbs => {
-          console.log('External DBs:', dbs);
-          setExternalDbs(dbs || []);
-        })
-        .catch(err => {
-          console.error('Failed to fetch external DBs:', err);
-          setExternalDbs([]);
-        });
+        .then(dbs => setExternalDbs(dbs || []))
+        .catch(() => setExternalDbs([]));
     }
     if (activeTab === 'bots' && currentUser?.role === 'admin') {
       fetch('/api/admin/bots', {
@@ -253,6 +259,43 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
       console.error('Failed to fetch logs:', e);
     } finally {
       setIsLoadingLogs(false);
+    }
+  };
+
+  // Fetch RAG stats when AI tab opens
+  useEffect(() => {
+    if (activeTab === 'ai') {
+      fetch('/api/notes', {
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
+      })
+      .then(res => res.json())
+      .then(data => {
+        const notes = Array.isArray(data) ? data : [];
+        setRagStats({ total_notes: notes.length });
+      })
+      .catch(() => setRagStats({ total_notes: 0 }));
+    }
+  }, [activeTab]);
+
+  const handleTestAI = async () => {
+    if (!testPrompt.trim()) return;
+    setIsTestingAI(true);
+    setTestResponse('');
+    try {
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+        },
+        body: JSON.stringify({ message: testPrompt })
+      });
+      const data = await response.json();
+      setTestResponse(data.answer || data.response || data.message || 'No response');
+    } catch (e) {
+      setTestResponse('Error: failed to connect');
+    } finally {
+      setIsTestingAI(false);
     }
   };
 
@@ -376,6 +419,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
   const handleTestProvider = async (provider: any) => {
     setTestingProviderId(provider.id);
+    setTestResult(null);
     try {
       const response = await fetch('/api/integrations/test', {
         method: 'POST',
@@ -393,17 +437,18 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
       const data = await response.json();
       if (response.ok && data.status === 'success') {
         setProviders(providers.map(p => p.id === provider.id ? { ...p, status: 'connected' } : p));
-        alert(t('settings.connSuccess'));
+        setTestResult({ id: provider.id, ok: true, msg: t('settings.connSuccess') });
       } else {
         setProviders(providers.map(p => p.id === provider.id ? { ...p, status: 'error' } : p));
-        alert(`${t('settings.connFailed')}${data.detail || data.message || t('settings.unknownError')}`);
+        setTestResult({ id: provider.id, ok: false, msg: data.detail || data.message || t('settings.unknownError') });
       }
     } catch (error) {
       console.error('Test Provider Error:', error);
       setProviders(providers.map(p => p.id === provider.id ? { ...p, status: 'error' } : p));
-      alert(t('settings.connFailed'));
+      setTestResult({ id: provider.id, ok: false, msg: t('settings.connFailed') });
     } finally {
       setTestingProviderId(null);
+      setTimeout(() => setTestResult(null), 4000);
     }
   };
 
@@ -483,8 +528,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
           <button onClick={() => setActiveTab('general')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'general' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
             <Globe size={16} className="mr-3" /> {t('settings.general')}
           </button>
-          <button onClick={() => setActiveTab('integrations')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'integrations' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Cpu size={16} className="mr-3" /> {t('settings.integrations')}
+          <button onClick={() => setActiveTab('ai')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'ai' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Sparkles size={16} className="mr-3" /> {t('settings.ai')}
           </button>
           <button onClick={() => setActiveTab('bots')} className={`w-full flex items-center px-4 py-2.5 rounded-xl text-sm transition-colors ${activeTab === 'bots' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
             <MessageSquare size={16} className="mr-3" /> {t('settings.bots')}
@@ -716,99 +761,6 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                     </label>
                   </div>
                 </section>
-              </>
-            )}
-
-            {activeTab === 'integrations' && (
-              <div className="space-y-8">
-                <section className="space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.llmProviders')}</h3>
-                    <button onClick={addProvider} className="flex items-center px-3 py-1.5 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all">
-                      <Plus size={16} className="mr-2" /> {t('settings.addProvider')}
-                    </button>
-                  </div>
-
-                  {providers.map(provider => (
-                    <div key={provider.id} className={`bg-card p-5 rounded-lg border ${provider.isActive ? 'border-primary' : 'border-border/50'} relative transition-all`}>
-                      <div className="absolute top-4 right-4 flex items-center space-x-4">
-                        <label className="flex items-center space-x-2 cursor-pointer text-sm text-muted-foreground">
-                          <input type="radio" checked={provider.isActive} onChange={() => updateProvider(provider.id, 'isActive', true)} className="form-radio text-primary bg-background border-border" />
-                          <span>{t('settings.active')}</span>
-                        </label>
-                        <button onClick={() => removeProvider(provider.id)} className="text-muted-foreground hover:text-destructive transition-colors">
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-
-                      <div className="space-y-4 mt-2">
-                        <div className="grid grid-cols-3 gap-4">
-                          <div>
-                            <label className="block text-sm text-muted-foreground mb-1">{t('settings.providerType')}</label>
-                            <select 
-                              value={provider.provider} 
-                              onChange={(e) => updateProvider(provider.id, 'provider', e.target.value)} 
-                              className="w-full bg-background border border-border rounded-lg p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
-                            >
-                              <option value="openai">{t('settings.optOpenAI')}</option>
-                              <option value="gemini">{t('settings.optGemini')}</option>
-                              <option value="openrouter">{t('settings.optOpenRouter')}</option>
-                              <option value="ollama">{t('settings.optOllama')}</option>
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-sm text-muted-foreground mb-1">{t('settings.label')}</label>
-                            <input type="text" value={provider.label} onChange={(e) => updateProvider(provider.id, 'label', e.target.value)} placeholder={t('settings.phDeepSeek')} className="w-full bg-background border border-border rounded-lg p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-muted-foreground mb-1">{t('settings.modelName')}</label>
-                            <input type="text" value={provider.modelName} onChange={(e) => updateProvider(provider.id, 'modelName', e.target.value)} placeholder={t('settings.phModel')} className="w-full bg-background border border-border rounded-lg p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-sm text-muted-foreground mb-1">
-                              {t('settings.baseUrl')}
-                              {provider.provider === 'ollama' && (
-                                <span className="ml-2 text-[10px] text-accent italic">
-                                  (Use host IP if in Docker, e.g. http://192.168.1.5:11434/v1)
-                                </span>
-                              )}
-                            </label>
-                            <input 
-                              type="text" 
-                              value={provider.baseUrl} 
-                              onChange={(e) => updateProvider(provider.id, 'baseUrl', e.target.value)} 
-                              placeholder="https://api.openai.com/v1" 
-                              disabled={provider.provider === 'gemini'}
-                              className="w-full bg-background border border-border rounded-lg p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all disabled:opacity-50" 
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-sm text-muted-foreground mb-1">{t('settings.apiKey')}</label>
-                            <input type="password" value={provider.apiKey} onChange={(e) => updateProvider(provider.id, 'apiKey', e.target.value)} placeholder="sk-..." className="w-full bg-background border border-border rounded-lg p-2 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-between mt-2">
-                          <div className="flex items-center space-x-2">
-                            <span className="text-xs text-muted-foreground">{t('settings.status')}</span>
-                            {provider.status === 'connected' && <span className="flex items-center text-accent text-xs"><CheckCircle size={14} className="mr-1" /> {t('settings.connected')}</span>}
-                            {provider.status === 'error' && <span className="flex items-center text-destructive text-xs"><AlertCircle size={14} className="mr-1" /> {t('settings.error')}</span>}
-                            {provider.status === 'idle' && <span className="text-muted-foreground text-xs">{t('settings.notTested')}</span>}
-                          </div>
-                          <button 
-                            onClick={() => handleTestProvider(provider)}
-                            disabled={testingProviderId === provider.id}
-                            className="px-4 py-2 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all disabled:opacity-50"
-                          >
-                            {testingProviderId === provider.id ? t('settings.testing') : t('settings.testConnection')}
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </section>
 
                 <section className="space-y-4">
                   <div className="flex items-center justify-between">
@@ -851,6 +803,320 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       <div className="bg-card p-6 rounded-lg border border-border/50 text-center text-muted-foreground">
                         <Database size={32} className="mx-auto mb-2 opacity-50" />
                         <p>{t('settings.noExternalDbs')}</p>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              </>
+            )}
+
+            {activeTab === 'ai' && (
+              <div className="space-y-8">
+                {/* Active Provider — compact dropdown */}
+                <section className="space-y-4">
+                  <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiProviders')}</h3>
+                  <div className="bg-card p-4 rounded-xl border border-border/50 flex items-center space-x-4">
+                    <Sparkles size={18} className="text-primary shrink-0" />
+                    <div className="flex-1">
+                      <label className="block text-xs text-muted-foreground mb-1">{t('settings.aiActiveProvider')}</label>
+                      <select
+                        value={providers.find(p => p.isActive)?.id || 'openai'}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          if (id === '__custom__') {
+                            const newProvider = { id: `custom-${Date.now()}`, label: 'Custom', provider: 'custom', apiKey: '', baseUrl: '', modelName: '', isActive: true, status: 'idle' };
+                            setProviders(providers.map(p => ({ ...p, isActive: false })).concat(newProvider));
+                          } else {
+                            setProviders(providers.map(p => ({ ...p, isActive: p.id === id })));
+                          }
+                        }}
+                        className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                      >
+                        <option value="__custom__">{t('settings.aiAddCustom')}</option>
+                        {providers.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.label} — {p.modelName || '...'}
+                            {p.status === 'connected' ? ' ✓' : p.status === 'error' ? ' ✗' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="shrink-0">
+                      {providers.find(p => p.isActive)?.status === 'connected' ? (
+                        <span className="flex items-center text-emerald-600 dark:text-emerald-400 text-xs font-medium"><CheckCircle size={14} className="mr-1" /> {t('settings.connected')}</span>
+                      ) : providers.find(p => p.isActive)?.status === 'error' ? (
+                        <span className="flex items-center text-destructive text-xs"><AlertCircle size={14} className="mr-1" /> {t('settings.error')}</span>
+                      ) : (
+                        <span className="text-muted-foreground text-xs">{t('settings.notTested')}</span>
+                      )}
+                    </div>
+                  </div>
+                </section>
+
+                {/* Provider Config (expanded for active) */}
+                {providers.filter(p => p.isActive).map(provider => (
+                  <section key={provider.id} className="space-y-4">
+                    <h3 className="font-serif text-xl font-semibold text-foreground">
+                      {provider.label} — {t('settings.configuration')}
+                    </h3>
+                    <div className="bg-card p-5 rounded-xl border border-border/50 space-y-4">
+                      {provider.provider === 'custom' && (
+                        <div>
+                          <label className="block text-sm text-muted-foreground mb-1">{t('settings.label')}</label>
+                          <input
+                            type="text"
+                            value={provider.label}
+                            onChange={(e) => updateProvider(provider.id, 'label', e.target.value)}
+                            placeholder="My Custom Provider"
+                            className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                          />
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-sm text-muted-foreground mb-1">{t('settings.apiKey')}</label>
+                          <input
+                            type="password"
+                            value={provider.apiKey}
+                            onChange={(e) => updateProvider(provider.id, 'apiKey', e.target.value)}
+                            placeholder={provider.provider === 'mimo' ? 'xiaomi-...' : 'sk-...'}
+                            className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm text-muted-foreground mb-1">{t('settings.modelName')}</label>
+                          {(() => {
+                            const knownModels: Record<string, string[]> = {
+                              mimo: ['mimo-auto', 'mimo-pro', 'mimo-lite'],
+                              openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-3.5-turbo'],
+                              gemini: ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-1.5-pro'],
+                              openrouter: ['google/gemini-2.0-flash-001', 'meta-llama/llama-3.1-8b-instruct:free', 'mistralai/mistral-7b-instruct:free', 'openai/gpt-4o-mini', 'anthropic/claude-3.5-sonnet'],
+                              ollama: ['llama3', 'llama3.1', 'mistral', 'phi3', 'gemma2', 'qwen2.5']
+                            };
+                            const models = knownModels[provider.provider] || [];
+                            const isCustom = models.length > 0 && !models.includes(provider.modelName);
+                            return (
+                              <>
+                                <select
+                                  value={isCustom ? '__custom__' : provider.modelName}
+                                  onChange={(e) => {
+                                    if (e.target.value === '__custom__') {
+                                      updateProvider(provider.id, 'modelName', '');
+                                    } else {
+                                      updateProvider(provider.id, 'modelName', e.target.value);
+                                    }
+                                  }}
+                                  className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                                >
+                                  {models.map(m => (
+                                    <option key={m} value={m}>{m}</option>
+                                  ))}
+                                  <option value="__custom__">{t('settings.aiCustomModel')}</option>
+                                </select>
+                                {(isCustom || models.length === 0) && (
+                                  <input
+                                    type="text"
+                                    value={provider.modelName}
+                                    onChange={(e) => updateProvider(provider.id, 'modelName', e.target.value)}
+                                    placeholder="model-name"
+                                    className="w-full mt-2 bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                                  />
+                                )}
+                              </>
+                            );
+                          })()}
+                        </div>
+                      </div>
+                      {provider.provider !== 'gemini' && (
+                        <div>
+                          <label className="block text-sm text-muted-foreground mb-1">{t('settings.baseUrl')}</label>
+                          <input
+                            type="text"
+                            value={provider.baseUrl}
+                            onChange={(e) => updateProvider(provider.id, 'baseUrl', e.target.value)}
+                            placeholder="https://api.example.com/v1"
+                            className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                          />
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between pt-2">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs text-muted-foreground">{t('settings.status')}:</span>
+                          {provider.status === 'connected' && <span className="flex items-center text-emerald-600 dark:text-emerald-400 text-xs font-medium"><CheckCircle size={14} className="mr-1" /> {t('settings.connected')}</span>}
+                          {provider.status === 'error' && <span className="flex items-center text-destructive text-xs"><AlertCircle size={14} className="mr-1" /> {t('settings.error')}</span>}
+                          {provider.status === 'idle' && <span className="text-muted-foreground text-xs">{t('settings.notTested')}</span>}
+                        </div>
+                        <button
+                          onClick={() => handleTestProvider(provider)}
+                          disabled={testingProviderId === provider.id}
+                          className="px-4 py-2 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all disabled:opacity-50"
+                        >
+                          {testingProviderId === provider.id ? t('settings.testing') : t('settings.testConnection')}
+                        </button>
+                      </div>
+                      {testResult && testResult.id === provider.id && (
+                        <div className={`flex items-center gap-2 text-sm font-medium px-4 py-3 rounded-lg border ${
+                          testResult.ok
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800'
+                            : 'bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'
+                        }`}>
+                          {testResult.ok ? <CheckCircle size={16} className="shrink-0" /> : <AlertCircle size={16} className="shrink-0" />}
+                          <span>{testResult.msg}</span>
+                        </div>
+                      )}
+                    </div>
+                  </section>
+                ))}
+
+                {/* Per-task Model Selection — Chat & Summary only */}
+                <section className="space-y-4">
+                  <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiTaskModels')}</h3>
+                  <p className="text-sm text-muted-foreground">{t('settings.aiTaskModelsDesc')}</p>
+                  <div className="bg-card p-5 rounded-xl border border-border/50">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">{t('settings.aiChat')}</label>
+                        <select
+                          value={aiChatModel}
+                          onChange={(e) => setAiChatModel(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                        >
+                          <option value="auto">{t('settings.aiAuto')} ({t('settings.aiDefault')})</option>
+                          {providers.map(p => (
+                            <option key={p.id} value={p.id}>{p.label} — {p.modelName}</option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">{t('settings.aiSummary')}</label>
+                        <select
+                          value={aiSummaryModel}
+                          onChange={(e) => setAiSummaryModel(e.target.value)}
+                          className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                        >
+                          <option value="auto">{t('settings.aiAuto')} ({t('settings.aiDefault')})</option>
+                          {providers.map(p => (
+                            <option key={p.id} value={p.id}>{p.label} — {p.modelName}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Behavior Settings */}
+                <section className="space-y-4">
+                  <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiBehavior')}</h3>
+                  <div className="bg-card p-5 rounded-xl border border-border/50 space-y-4">
+                    <div>
+                      <label className="block text-sm text-muted-foreground mb-1">{t('settings.aiSystemPrompt')}</label>
+                      <textarea
+                        value={aiSystemPrompt}
+                        onChange={(e) => setAiSystemPrompt(e.target.value)}
+                        rows={3}
+                        className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all resize-none"
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">
+                          {t('settings.aiTemperature')}: {aiTemperature}
+                        </label>
+                        <p className="text-xs text-muted-foreground/70 mb-2">{t('settings.aiTemperatureDesc')}</p>
+                        <input
+                          type="range"
+                          min="0"
+                          max="2"
+                          step="0.1"
+                          value={aiTemperature}
+                          onChange={(e) => setAiTemperature(parseFloat(e.target.value))}
+                          className="w-full accent-primary"
+                        />
+                        <div className="flex justify-between text-xs text-muted-foreground mt-1">
+                          <span>{t('settings.aiPrecise')}</span>
+                          <span>{t('settings.aiCreative')}</span>
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm text-muted-foreground mb-1">{t('settings.aiMaxTokens')}</label>
+                        <input
+                          type="number"
+                          min="256"
+                          max="8192"
+                          step="256"
+                          value={aiMaxTokens}
+                          onChange={(e) => setAiMaxTokens(parseInt(e.target.value) || 2048)}
+                          className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* RAG Status */}
+                <section className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiRagStatus')}</h3>
+                    <button
+                      onClick={async () => {
+                        setIsReindexing(true);
+                        try {
+                          const res = await fetch('/api/notes/reindex', {
+                            method: 'POST',
+                            headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json' }
+                          });
+                          const data = await res.json();
+                          if (res.ok) {
+                            setRagStats((prev: any) => ({ ...prev, total_notes: data.total_notes || prev?.total_notes }));
+                          }
+                        } catch (e) { console.error(e); }
+                        finally { setIsReindexing(false); }
+                      }}
+                      disabled={isReindexing}
+                      className="px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center text-sm disabled:opacity-50"
+                    >
+                      <RefreshCw size={14} className={`mr-1.5 ${isReindexing ? 'animate-spin' : ''}`} />
+                      {isReindexing ? t('settings.reindexing') : t('settings.reindex')}
+                    </button>
+                  </div>
+                  <div className="bg-card p-5 rounded-xl border border-border/50">
+                    <div className="flex items-center justify-center space-x-8">
+                      <div className="text-center">
+                        <div className="text-3xl font-bold text-primary">{ragStats?.total_notes ?? '—'}</div>
+                        <div className="text-xs text-muted-foreground mt-1">{t('settings.aiTotalNotes')}</div>
+                      </div>
+                    </div>
+                  </div>
+                </section>
+
+                {/* Test Playground */}
+                <section className="space-y-4">
+                  <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiPlayground')}</h3>
+                  <div className="bg-card p-5 rounded-xl border border-border/50 space-y-3">
+                    <div className="flex items-center space-x-2 text-xs text-muted-foreground mb-2">
+                      <TestTube size={14} />
+                      <span>{t('settings.aiPlaygroundDesc')}</span>
+                    </div>
+                    <div className="flex space-x-2">
+                      <input
+                        type="text"
+                        value={testPrompt}
+                        onChange={(e) => setTestPrompt(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleTestAI()}
+                        placeholder={t('settings.aiPlaygroundPlaceholder')}
+                        className="flex-1 bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all"
+                      />
+                      <button
+                        onClick={handleTestAI}
+                        disabled={isTestingAI || !testPrompt.trim()}
+                        className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors disabled:opacity-50 flex items-center"
+                      >
+                        {isTestingAI ? <RefreshCw size={16} className="animate-spin" /> : <Zap size={16} />}
+                      </button>
+                    </div>
+                    {testResponse && (
+                      <div className="bg-background border border-border/50 rounded-lg p-4 text-sm text-foreground whitespace-pre-wrap max-h-60 overflow-y-auto">
+                        {testResponse}
                       </div>
                     )}
                   </div>

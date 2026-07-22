@@ -549,7 +549,7 @@ async def reindex_notes(db: Session = Depends(get_db), current_user: User = Depe
     for n in notes:
         n.embedding = embedding_manager.get_vector(f"{n.title}\n{n.content or ''}")
     db.commit()
-    return {"status": "success"}
+    return {"status": "success", "total_notes": len(notes)}
 
 @app.get("/api/notes/export")
 async def export_notes(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
