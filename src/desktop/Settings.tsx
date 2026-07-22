@@ -673,7 +673,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
                 <section className="space-y-4">
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.dataManagement')}</h3>
-                  <div className="bg-card p-4 rounded-lg border border-border/50 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
+                  <div className="bg-card p-4 rounded-lg border border-border/50 flex flex-col items-center gap-3 text-center">
                     <div>
                       <div className="text-foreground font-medium">{t('settings.reindexSearch')}</div>
                       <div className="text-sm text-muted-foreground">{t('settings.reindexDesc')}</div>
