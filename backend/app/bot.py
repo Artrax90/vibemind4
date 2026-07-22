@@ -569,6 +569,19 @@ async def semantic_search_api(user_id: int, query: str) -> Dict[str, Any]:
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
+def clean_content_for_llm(content: str) -> str:
+    """Strip board data and base64 images from content for LLM context."""
+    if not content:
+        return ""
+    # Remove board data entirely
+    cleaned = re.sub(r'<!-- board:.*?-->', '[Доска — см. в приложении]', content, flags=re.DOTALL)
+    # Remove base64 images
+    cleaned = re.sub(r'!\[.*?\]\(data:image/[^)]+\)', '[Изображение]', cleaned)
+    # Truncate if still too long
+    if len(cleaned) > 2000:
+        cleaned = cleaned[:2000] + "..."
+    return cleaned
+
 async def send_long_message(message: types.Message, text: str, parse_mode: str = "HTML", **kwargs):
     """Sends a long message in multiple parts if it exceeds Telegram's limit."""
     if len(text) <= 4096:
@@ -610,6 +623,35 @@ async def handle_open_note(callback: types.CallbackQuery, user_id: int):
 
         title_esc = html.escape(note.get("title", "Без названия"))
         content = note.get("content", "Пусто")
+
+        # Check if this is a board note (fast regex, no JSON parse)
+        if '<!-- board:' in content:
+            board_match = re.search(r'<!-- board:.*?"items"\s*:\s*\[(.*?)\]\s*\}.*?-->', content, re.DOTALL)
+            if board_match:
+                items_str = board_match.group(1)
+                # Count items by counting "type": patterns
+                item_count = len(re.findall(r'"type"\s*:', items_str))
+                # Extract text from "text": "..." patterns (skip base64 images)
+                text_items = re.findall(r'"text"\s*:\s*"((?:[^"\\]|\\.)*?)"', items_str)
+                text_items = [t.strip() for t in text_items if t.strip() and len(t) < 500]
+
+                if text_items:
+                    board_content = "\n".join(f"• {html.escape(t)}" for t in text_items[:20])
+                    full_text = f"📋 <b>{title_esc}</b> (доска, {item_count} элементов)\n\n{board_content}"
+                else:
+                    full_text = f"📋 <b>{title_esc}</b> (доска, {item_count} элементов)\n\n_<i>Текстовых элементов нет</i>_"
+
+                if len(full_text) <= 4096:
+                    await callback.message.answer(full_text, parse_mode="HTML")
+                else:
+                    header = f"📋 <b>{title_esc}</b> (доска)\n\n"
+                    await callback.message.answer(header, parse_mode="HTML")
+                    limit = 4000
+                    board_escaped = html.escape(board_content)
+                    for i in range(0, len(board_escaped), limit):
+                        await callback.message.answer(board_escaped[i:i+limit], parse_mode="HTML")
+                return
+
         content_esc = html.escape(content)
         
         full_text = f"📝 <b>{html.escape(note.get('title', ''))}</b>\n\n{content_esc}"
@@ -678,7 +720,7 @@ async def handle_photo(message: types.Message, user_id: int, admin_id: str = Non
         if caption:
             logger.info(f"Обработка фото с подписью: «{caption}»")
             notes = await get_all_notes_api(user_id)
-            notes_context = [{"id": n.get("id"), "title": n.get("title"), "content": n.get("content")} for n in notes]
+            notes_context = [{"id": n.get("id"), "title": n.get("title"), "content": clean_content_for_llm(n.get("content", ""))} for n in notes]
             commands = await parse_commands_llm(user_id, caption, notes_context)
             logger.info(f"Распознанные команды для фото: {commands}")
             
@@ -1059,8 +1101,26 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
                             if res.get("status") == "success":
                                 note = res["data"]
                                 title_esc = html.escape(note.get("title", ""))
-                                content_esc = html.escape(note.get("content", ""))
-                                await send_long_message(message, f"🔓 Доступ разрешен!\n\n📝 <b>{title_esc}</b>\n\n{content_esc}")
+                                content = note.get("content", "")
+
+                                # Check if board (fast regex)
+                                if '<!-- board:' in content:
+                                    board_match = re.search(r'<!-- board:.*?"items"\s*:\s*\[(.*?)\]\s*\}.*?-->', content, re.DOTALL)
+                                    if board_match:
+                                        items_str = board_match.group(1)
+                                        item_count = len(re.findall(r'"type"\s*:', items_str))
+                                        text_items = re.findall(r'"text"\s*:\s*"((?:[^"\\]|\\.)*?)"', items_str)
+                                        text_items = [t.strip() for t in text_items if t.strip() and len(t) < 500]
+                                        if text_items:
+                                            board_text = "\n".join(f"• {html.escape(t)}" for t in text_items[:20])
+                                            await send_long_message(message, f"🔓 Доступ разрешен!\n\n📋 <b>{title_esc}</b> (доска)\n\n{board_text}")
+                                        else:
+                                            await send_long_message(message, f"🔓 Доступ разрешен!\n\n📋 <b>{title_esc}</b> (доска, нет текста)")
+                                    else:
+                                        await send_long_message(message, f"🔓 Доступ разрешен!\n\n📋 <b>{title_esc}</b> (доска)")
+                                else:
+                                    content_esc = html.escape(content)
+                                    await send_long_message(message, f"🔓 Доступ разрешен!\n\n📝 <b>{title_esc}</b>\n\n{content_esc}")
                                 return
                         else:
                             await message.answer("❌ Неверный пароль. Попробуйте снова открыть заметку.")
@@ -1079,7 +1139,7 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
         
     normalized_text = normalize_intent(processed_text)
     notes = await get_all_notes_api(user_id)
-    notes_context = [{"id": n.get("id"), "title": n.get("title"), "content": n.get("content")} for n in notes]
+    notes_context = [{"id": n.get("id"), "title": n.get("title"), "content": clean_content_for_llm(n.get("content", ""))} for n in notes]
     commands = await parse_commands_llm(user_id, normalized_text, notes_context)
     logger.info(f"Распознанные команды: {commands}")
     
@@ -1150,8 +1210,20 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
                 if note.get('folderIsProtected'):
                     p_esc = "<i>[Содержимое защищено паролем]</i>"
                 else:
-                    p_esc = html.escape(note.get('content', '')[:100].replace('\n', ' '))
-                    p_esc = f"<i>{p_esc}</i>"
+                    raw_content = note.get('content', '')
+                    # Check if board (fast regex)
+                    if '<!-- board:' in raw_content:
+                        bm = re.search(r'<!-- board:.*?"items"\s*:\s*\[', raw_content, re.DOTALL)
+                        if bm:
+                            # Count items quickly
+                            items_section = raw_content[bm.start():]
+                            item_count = len(re.findall(r'"type"\s*:', items_section[:5000]))
+                            p_esc = f"<i>📋 Доска ({item_count} элементов)</i>"
+                        else:
+                            p_esc = "<i>📋 Доска</i>"
+                    else:
+                        p_esc = html.escape(raw_content[:100].replace('\n', ' '))
+                        p_esc = f"<i>{p_esc}</i>"
                 resp += f"{i}. <b>{t_esc}</b>\n{p_esc}\n\n"
                 builder.button(text=f"Открыть {i}", callback_data=f"open_note_{note['id']}")
             builder.adjust(1)
