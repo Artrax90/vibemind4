@@ -1077,7 +1077,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
                 {/* RAG Status */}
                 <section className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.aiRagStatus')}</h3>
                     <button
                       onClick={async () => {
@@ -1095,7 +1095,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         finally { setIsReindexing(false); }
                       }}
                       disabled={isReindexing}
-                      className="px-3 py-1.5 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center text-sm disabled:opacity-50"
+                      className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center text-sm self-start md:self-auto disabled:opacity-50"
                     >
                       <RefreshCw size={14} className={`mr-1.5 ${isReindexing ? 'animate-spin' : ''}`} />
                       {isReindexing ? t('settings.reindexing') : t('settings.reindex')}
