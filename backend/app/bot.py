@@ -717,11 +717,325 @@ async def handle_photo(message: types.Message, user_id: int, admin_id: str = Non
         logger.error(f"Error in handle_photo: {e}")
         await message.answer(f"❌ Ошибка: {str(e)}")
 
+# ==================== REMINDER PARSER ====================
+
+def parse_reminder(text: str) -> Optional[Dict[str, str]]:
+    """Parse natural language reminder text into {date, time, message}."""
+    now = datetime.now()
+    t = text.lower().strip()
+    # Remove trigger words
+    for trigger in ['напомни мне', 'напомни', 'напомнить мне', 'напомнить', 'напоминание', 'remind me', 'remind']:
+        if t.startswith(trigger):
+            t = t[len(trigger):].strip()
+            break
+
+    date = None
+    time_str = "09:00"
+
+    # --- Parse date ---
+    # "завтра"
+    if re.search(r'\bзавтра\b', t):
+        date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+        t = re.sub(r'\bзавтра\b', '', t).strip()
+    # "послезавтра"
+    elif re.search(r'\bпослезавтра\b', t):
+        date = (now + timedelta(days=2)).strftime("%Y-%m-%d")
+        t = re.sub(r'\bпослезавтра\b', '', t).strip()
+    # "через минуту/час" (без числа = 1) или "через N часов/минут"
+    elif re.search(r'\bчерез\s+(одну|один|одно)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t) or re.search(r'\bчерез\s+(\d+)\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t):
+        m = re.search(r'\bчерез\s+(одну|один|одно)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t)
+        if m:
+            n = 1
+            unit = m.group(2)
+        else:
+            m = re.search(r'\bчерез\s+(\d+)\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t)
+            n = int(m.group(1))
+            unit = m.group(2)
+        if 'час' in unit:
+            delta = timedelta(hours=n)
+        elif 'секунд' in unit:
+            delta = timedelta(seconds=max(n, 30))
+        else:
+            delta = timedelta(minutes=n)
+        target = now + delta
+        date = target.strftime("%Y-%m-%d")
+        time_str = target.strftime("%H:%M")
+        t = t[:m.start()] + t[m.end():]
+        t = t.strip()
+    # "DD.MM.YYYY" or "DD.MM"
+    elif re.search(r'\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t):
+        m = re.search(r'\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t)
+        day = int(m.group(1))
+        month = int(m.group(2))
+        year = int(m.group(3)) if m.group(3) else now.year
+        try:
+            date = datetime(year, month, day).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        t = t[:m.start()] + t[m.end():]
+        t = t.strip()
+    # "N числа"
+    elif re.search(r'\b(\d{1,2})\s+числа\b', t):
+        m = re.search(r'\b(\d{1,2})\s+числа\b', t)
+        day = int(m.group(1))
+        month = now.month
+        if day < now.day:
+            month += 1
+        if month > 12:
+            month = 1
+        year = now.year if month >= now.month else now.year + 1
+        try:
+            date = datetime(year, month, day).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+        t = t[:m.start()] + t[m.end():]
+        t = t.strip()
+    # "следующий/эта/этот + день недели"
+    elif re.search(r'\b(следующий|следующая|следующее|эта|этот|этого)\s+(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t):
+        weekdays_map = {'понедельник': 0, 'вторник': 1, 'среда': 2, 'четверг': 3, 'пятница': 4, 'суббота': 5, 'воскресенье': 6}
+        m = re.search(r'\b(следующий|следующая|следующее|эта|этот|этого)\s+(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t)
+        target_wd = weekdays_map[m.group(2)]
+        days_ahead = (target_wd - now.weekday()) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        date = (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        t = t[:m.start()] + t[m.end():]
+        t = t.strip()
+    # "понедельник", "вторник" etc. without prefix
+    elif re.search(r'\b(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t):
+        weekdays_map = {'понедельник': 0, 'вторник': 1, 'среда': 2, 'четверг': 3, 'пятница': 4, 'суббота': 5, 'воскресенье': 6}
+        m = re.search(r'\b(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t)
+        target_wd = weekdays_map[m.group(1)]
+        days_ahead = (target_wd - now.weekday()) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        date = (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+        t = t[:m.start()] + t[m.end():]
+        t = t.strip()
+
+    if not date:
+        # Default: tomorrow
+        date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # --- Parse time ---
+    # "в HH:MM" or "HH:MM" — with colon or dot
+    time_match = re.search(r'(?:в\s+)?(\d{1,2})[:\.](\d{1,2})\b', t)
+    if time_match:
+        h = max(0, min(23, int(time_match.group(1))))
+        m_val = max(0, min(59, int(time_match.group(2))))
+        time_str = f"{h:02d}:{m_val:02d}"
+        t = t[:time_match.start()] + t[time_match.end():]
+        t = t.strip()
+    else:
+        # "в HH MM" — hour and minutes separated by space (e.g. "в 4 30", "в 16 28")
+        time_match = re.search(r'\bв\s+(\d{1,2})\s+(\d{1,2})\b', t)
+        if time_match:
+            h = max(0, min(23, int(time_match.group(1))))
+            m_val = max(0, min(59, int(time_match.group(2))))
+            time_str = f"{h:02d}:{m_val:02d}"
+            t = t[:time_match.start()] + t[time_match.end():]
+            t = t.strip()
+        else:
+            # "в 4digit" — words_to_digits merged hour+minutes (e.g. "в 34" = 3:04, "в 1628" = 16:28)
+            time_match = re.search(r'\bв\s+(\d{2,4})\b', t)
+            if time_match:
+                num = int(time_match.group(1))
+                if num <= 23:
+                    # Just an hour: "в 4" → 4:00
+                    time_str = f"{num:02d}:00"
+                elif num <= 2359:
+                    # Two-digit hour + two-digit minute: "в 1628" → 16:28
+                    h = num // 100
+                    m_val = num % 100
+                    if h <= 23 and m_val <= 59:
+                        time_str = f"{h:02d}:{m_val:02d}"
+                    else:
+                        time_str = f"{min(h, 23):02d}:{min(m_val, 59):02d}"
+                else:
+                    # Three digits: "в 328" → 3:28 (first digit = hour, rest = minutes)
+                    h = num // 100
+                    m_val = num % 100
+                    if h <= 23 and m_val <= 59:
+                        time_str = f"{h:02d}:{m_val:02d}"
+                    else:
+                        time_str = "09:00"
+                t = t[:time_match.start()] + t[time_match.end():]
+                t = t.strip()
+            else:
+                # "в HH" — just hour, no minutes (e.g. "в 4", "в 16")
+                time_match = re.search(r'\bв\s+(\d{1,2})\b', t)
+                if time_match:
+                    h = max(0, min(23, int(time_match.group(1))))
+                    time_str = f"{h:02d}:00"
+                    t = t[:time_match.start()] + t[time_match.end():]
+                    t = t.strip()
+                else:
+                    # "вечером" → 18:00
+                    if re.search(r'\bвечером\b', t):
+                        time_str = "18:00"
+                        t = re.sub(r'\bвечером\b', '', t).strip()
+                    elif re.search(r'\bутром\b', t):
+                        time_str = "09:00"
+                        t = re.sub(r'\bутром\b', '', t).strip()
+                    elif re.search(r'\bднём\b', t):
+                        time_str = "12:00"
+                        t = re.sub(r'\bднём\b', '', t).strip()
+                    elif re.search(r'\bночью\b', t):
+                        time_str = "00:00"
+                        t = re.sub(r'\bночью\b', '', t).strip()
+
+    # Clean message
+    t = re.sub(r'\bнапомни\b', '', t).strip()
+    t = re.sub(r'\bмне\b', '', t).strip()
+    t = re.sub(r'\bпро\b', '', t).strip()
+    t = re.sub(r'^в\s+', '', t).strip()
+    t = re.sub(r'^[,.\s]+', '', t).strip()
+    # Remove orphan single letters from Vosk artifacts (e.g. "м купить хлеб" → "купить хлеб")
+    t = re.sub(r'^[а-яё]\s+', '', t).strip()
+
+    if not t:
+        t = "Напоминание"
+
+    return {"date": date, "time": time_str, "message": t}
+
+async def create_reminder_api(user_id: int, data: Dict[str, str]) -> Dict[str, Any]:
+    """Create a reminder via HTTP API (without creating a note)."""
+    url = "http://localhost:3344/api/reminders"
+    token = await get_user_token(user_id)
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {
+        "remind_at": f"{data['date']}T{data['time']}:00",
+        "repeat_type": "none",
+        "message": data["message"]
+    }
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as response:
+                if response.status == 200:
+                    return {"status": "success"}
+                body = await response.text()
+                return {"status": "error", "message": f"HTTP {response.status}: {body}"}
+    except Exception as e:
+        return {"status": "error", "message": str(e)}
+
+async def get_reminders_api(user_id: int) -> list:
+    """Get all reminders via HTTP API."""
+    url = "http://localhost:3344/api/reminders"
+    token = await get_user_token(user_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=headers) as response:
+                if response.status == 200:
+                    return await response.json()
+                return []
+    except Exception as e:
+        return []
+
+async def delete_reminder_api(user_id: int, reminder_id: str) -> bool:
+    url = f"http://localhost:3344/api/reminders/{reminder_id}"
+    token = await get_user_token(user_id)
+    headers = {"Authorization": f"Bearer {token}"}
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.delete(url, headers=headers) as response:
+                return response.status == 200
+    except:
+        return False
+
+@dp.message(Command("calendar"))
+async def handle_calendar(message: types.Message, user_id: int, admin_id: str = None):
+    if admin_id and str(message.from_user.id) != str(admin_id): return
+    args = message.text.split(maxsplit=1)
+    sub = args[1].lower() if len(args) > 1 else "сегодня"
+    await _show_calendar(message, user_id, sub)
+
+async def _show_calendar(message: types.Message, user_id: int, sub: str = "сегодня"):
+    now = datetime.now()
+    if sub in ["сегодня", "today"]:
+        start = now.replace(hour=0, minute=0, second=0)
+        end = start + timedelta(days=1)
+        label = f"Сегодня, {now.strftime('%d.%m')} ({['пн','вт','ср','чт','пт','сб','вс'][now.weekday()]})"
+    elif sub in ["завтра", "tomorrow"]:
+        start = (now + timedelta(days=1)).replace(hour=0, minute=0, second=0)
+        end = start + timedelta(days=1)
+        d = start
+        label = f"Завтра, {d.strftime('%d.%m')} ({['пн','вт','ср','чт','пт','сб','вс'][d.weekday()]})"
+    elif sub in ["неделя", "week"]:
+        start = now.replace(hour=0, minute=0, second=0)
+        end = start + timedelta(days=7)
+        label = "На неделю"
+    elif sub in ["месяц", "month"]:
+        start = now.replace(hour=0, minute=0, second=0)
+        next_month = (now.replace(day=28) + timedelta(days=4)).replace(day=1)
+        end = next_month
+        label = "На месяц"
+    else:
+        start = now.replace(hour=0, minute=0, second=0)
+        end = start + timedelta(days=1)
+        label = f"Сегодня, {now.strftime('%d.%m')} ({['пн','вт','ср','чт','пт','сб','вс'][now.weekday()]})"
+
+    reminders = await get_reminders_api(user_id)
+    filtered = []
+    for r in reminders:
+        try:
+            rt = datetime.fromisoformat(r["remind_at"])
+            if start <= rt < end and not r.get("is_sent"):
+                filtered.append(r)
+        except:
+            pass
+
+    filtered.sort(key=lambda x: x["remind_at"])
+
+    if not filtered:
+        await send_long_message(message, f"📅 <b>{label}</b>\n\nПусто — нет напоминаний.")
+        return
+
+    resp = f"📅 <b>{label}</b>\n\n"
+    for r in filtered:
+        rt = datetime.fromisoformat(r["remind_at"])
+        time_display = rt.strftime("%H:%M")
+        msg = r.get("message") or "Напоминание"
+        resp += f"🕐 <b>{time_display}</b> — {html.escape(msg)}\n"
+
+    await send_long_message(message, resp)
+
+
 @dp.message(F.text)
 async def handle_text(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     if message.text.startswith('/'): return
-    
+
+    # --- Check for reminder intent FIRST ---
+    text_lower = message.text.lower().strip()
+    reminder_triggers = ['напомни', 'напомнить', 'напоминание', 'напомни мне', 'напомнить мне', 'remind me', 'remind']
+    if any(text_lower.startswith(t) for t in reminder_triggers):
+        parsed = parse_reminder(message.text)
+        if parsed:
+            result = await create_reminder_api(user_id, parsed)
+            if result.get("status") == "success":
+                d = datetime.strptime(parsed["date"], "%Y-%m-%d")
+                weekdays = ["пн", "вт", "ср", "чт", "пт", "сб", "вс"]
+                wd = weekdays[d.weekday()]
+                date_str = d.strftime("%d.%m.%Y")
+                resp = f"✅ Напоминание создано!\n\n📅 <b>{date_str} ({wd})</b>\n🕐 {parsed['time']}\n📝 {html.escape(parsed['message'])}"
+                await send_long_message(message, resp)
+            else:
+                await message.answer(f"❌ Не удалось создать напоминание: {result.get('message', 'Ошибка')}")
+            return
+
+    # --- Check for calendar intent ---
+    calendar_triggers = {
+        'сегодня': ['что сегодня', 'на сегодня', 'календарь сегодня', 'сегодня', 'что запланировано на сегодня', 'что planned на сегодня', 'какие планы на сегодня', 'планы на сегодня'],
+        'завтра': ['что завтра', 'на завтра', 'календарь завтра', 'завтра', 'что запланировано на завтра', 'какие планы на завтра', 'планы на завтра'],
+        'неделя': ['на неделе', 'календарь на неделю', 'что на неделе', 'неделя', 'планы на неделю', 'какие планы на неделю', 'планы на этой неделе'],
+        'месяц': ['на месяце', 'календарь на месяц', 'что на месяце', 'месяц', 'планы на месяц', 'какие планы на месяц'],
+    }
+    for sub_key, triggers in calendar_triggers.items():
+        if any(t in text_lower for t in triggers):
+            await _show_calendar(message, user_id, sub_key)
+            return
+
     chat_id = str(message.chat.id)
     if chat_id in awaiting_passwords:
         state = awaiting_passwords.pop(chat_id)
