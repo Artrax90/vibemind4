@@ -629,6 +629,77 @@ ${context}
     });
   },
 
+  async getCalendarStatus(): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) return { connected: false };
+    const token = await this.getServerToken();
+    if (!token) return { connected: false };
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/calendar/status`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) return { connected: false };
+    return await res.json();
+  },
+
+  async getCalendarAuthUrl(): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) return {};
+    const token = await this.getServerToken();
+    if (!token) return {};
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/calendar/auth`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) return {};
+    return await res.json();
+  },
+
+  async disconnectCalendar(): Promise<void> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) return;
+    const token = await this.getServerToken();
+    if (!token) return;
+    const url = this.getNormalizedUrl();
+    await fetch(`${url}/api/calendar/disconnect`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
+  },
+
+  async getExternalDbs(): Promise<any[]> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) return [];
+    const token = await this.getServerToken();
+    if (!token) return [];
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/external-dbs`, { headers: { 'Authorization': `Bearer ${token}` } });
+    if (!res.ok) return [];
+    return await res.json();
+  },
+
+  async addExternalDb(dbData: any): Promise<any[]> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) throw new Error('Not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('No token');
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/external-dbs`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(dbData)
+    });
+    if (!res.ok) throw new Error('Failed to add DB');
+    return await res.json();
+  },
+
+  async deleteExternalDb(dbId: string): Promise<any[]> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) throw new Error('Not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('No token');
+    const url = this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/external-dbs/${dbId}`, {
+      method: 'DELETE',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Failed to delete DB');
+    return await res.json();
+  },
+
   async clearLocalData() {
     await dbApi.clearData();
   }
