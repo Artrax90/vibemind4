@@ -673,7 +673,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
                 <section className="space-y-4">
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.dataManagement')}</h3>
-                  <div className="bg-card p-4 rounded-lg border border-border/50 flex justify-between items-center">
+                  <div className="bg-card p-4 rounded-lg border border-border/50 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
                     <div>
                       <div className="text-foreground font-medium">{t('settings.reindexSearch')}</div>
                       <div className="text-sm text-muted-foreground">{t('settings.reindexDesc')}</div>
@@ -712,7 +712,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
                 <section className="space-y-4">
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.export')}</h3>
-                  <div className="bg-card p-4 rounded-lg border border-border/50 flex justify-between items-center">
+                  <div className="bg-card p-4 rounded-lg border border-border/50 flex flex-col md:flex-row md:justify-between md:items-center gap-3">
                     <div>
                       <div className="text-foreground font-medium">{t('settings.markdownExport')}</div>
                       <div className="text-sm text-muted-foreground">{t('settings.exportDesc')}</div>
@@ -750,7 +750,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                     </button>
                   </div>
                   
-                  <div className="flex items-center justify-between p-4 bg-card rounded-lg border border-border/50">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between p-4 bg-card rounded-lg border border-border/50 gap-3">
                     <div>
                       <div className="text-foreground font-medium">{t('settings.importNotes')}</div>
                       <div className="text-sm text-muted-foreground">{t('settings.importDesc')}</div>
@@ -785,7 +785,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                 </section>
 
                 <section className="space-y-4">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                     <div>
                       <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.externalDatabases')}</h3>
                       <p className="text-xs text-muted-foreground mt-1">
