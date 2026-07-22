@@ -502,29 +502,29 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
       <div className="flex flex-col md:flex-row flex-1 overflow-hidden">
         {/* Sidebar Tabs — horizontal on mobile, vertical on desktop */}
-        <div className="md:w-64 md:border-r border-b md:border-b-0 border-border/50 p-2 md:p-4 overflow-x-auto md:overflow-y-auto md:scroll-elegant flex md:flex-col gap-1 shrink-0">
-          <button onClick={() => setActiveTab('connection')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'connection' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Server size={16} className="mr-2" /> {t('settings.connection')}
+        <div className="md:w-64 md:border-r border-b md:border-b-0 border-border/50 p-1.5 md:p-4 overflow-x-auto md:overflow-y-auto md:scroll-elegant flex md:flex-col gap-0.5 md:gap-1 shrink-0">
+          <button onClick={() => setActiveTab('connection')} className={`flex items-center px-2 md:px-4 py-1.5 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === 'connection' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Server size={14} className="mr-1 md:mr-2 shrink-0" /> <span className="hidden sm:inline">{t('settings.connection')}</span><span className="sm:hidden">{t('settings.connection').slice(0,4)}</span>
           </button>
-          <button onClick={() => setActiveTab('general')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'general' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Globe size={16} className="mr-2" /> {t('settings.general')}
+          <button onClick={() => setActiveTab('general')} className={`flex items-center px-2 md:px-4 py-1.5 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === 'general' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Globe size={14} className="mr-1 md:mr-2 shrink-0" /> <span className="hidden sm:inline">{t('settings.general')}</span><span className="sm:hidden">{t('settings.general').slice(0,4)}</span>
           </button>
-          <button onClick={() => setActiveTab('ai')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'ai' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <Sparkles size={16} className="mr-2" /> {t('settings.ai')}
+          <button onClick={() => setActiveTab('ai')} className={`flex items-center px-2 md:px-4 py-1.5 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === 'ai' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <Sparkles size={14} className="mr-1 md:mr-2 shrink-0" /> {t('settings.ai')}
           </button>
-          <button onClick={() => setActiveTab('bots')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'bots' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <MessageSquare size={16} className="mr-2" /> {t('settings.bots')}
+          <button onClick={() => setActiveTab('bots')} className={`flex items-center px-2 md:px-4 py-1.5 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === 'bots' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <MessageSquare size={14} className="mr-1 md:mr-2 shrink-0" /> <span className="hidden sm:inline">{t('settings.bots')}</span><span className="sm:hidden">{t('settings.bots').slice(0,4)}</span>
           </button>
-          <button onClick={() => setActiveTab('profile')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'profile' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-            <User size={16} className="mr-2" /> {t('settings.profile') || 'Profile'}
+          <button onClick={() => setActiveTab('profile')} className={`flex items-center px-2 md:px-4 py-1.5 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === 'profile' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+            <User size={14} className="mr-1 md:mr-2 shrink-0" /> <span className="hidden sm:inline">{t('settings.profile') || 'Profile'}</span><span className="sm:hidden">{(t('settings.profile') || 'Profile').slice(0,4)}</span>
           </button>
           {currentUser?.role === 'admin' && (
             <>
-              <button onClick={() => setActiveTab('users')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'users' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-                <Shield size={16} className="mr-2" /> {t('settings.users')}
+              <button onClick={() => setActiveTab('users')} className={`flex items-center px-2 md:px-4 py-1.5 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === 'users' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                <Shield size={14} className="mr-1 md:mr-2 shrink-0" /> <span className="hidden sm:inline">{t('settings.users')}</span><span className="sm:hidden">{t('settings.users').slice(0,4)}</span>
               </button>
-              <button onClick={() => setActiveTab('logs')} className={`flex items-center px-3 md:px-4 py-2 md:py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap ${activeTab === 'logs' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
-                <Terminal size={16} className="mr-2" /> {t('settings.logs') || 'Logs'}
+              <button onClick={() => setActiveTab('logs')} className={`flex items-center px-2 md:px-4 py-1.5 md:py-2.5 rounded-lg md:rounded-xl text-xs md:text-sm transition-colors whitespace-nowrap shrink-0 ${activeTab === 'logs' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground'}`}>
+                <Terminal size={14} className="mr-1 md:mr-2 shrink-0" /> <span className="hidden sm:inline">{t('settings.logs') || 'Logs'}</span><span className="sm:hidden">{(t('settings.logs') || 'Logs').slice(0,4)}</span>
               </button>
             </>
           )}
@@ -703,9 +703,9 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         }
                       }}
                       disabled={isReindexing}
-                      className="px-3 md:px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center text-sm disabled:opacity-50"
+                      className="px-3 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center text-sm shrink-0"
                     >
-                      <Database size={14} className={`mr-1.5 ${isReindexing ? 'animate-spin' : ''}`} /> <span className="hidden md:inline">{isReindexing ? t('settings.reindexing') : t('settings.reindex')}</span><span className="md:hidden">{isReindexing ? '...' : t('settings.reindex')}</span>
+                      <Database size={14} className={`mr-1.5 ${isReindexing ? 'animate-spin' : ''}`} /> {isReindexing ? t('settings.reindexing') : t('settings.reindex')}
                     </button>
                   </div>
                 </section>
