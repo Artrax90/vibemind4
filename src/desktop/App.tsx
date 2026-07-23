@@ -538,7 +538,7 @@ export default function App() {
                 <BoardEditor content={activeNote.content || ''} title={activeNote.title || ''}
                   onChange={(content) => updateNote(activeNote.id, { content })}
                   onTitleChange={(title) => updateNote(activeNote.id, { title })}
-                  noteId={activeNote.id} />
+                  noteId={activeNote.id} baseUrl={baseUrl} />
               </Suspense>
             </motion.div>
           ) : activeNote ? (

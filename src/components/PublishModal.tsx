@@ -8,12 +8,13 @@ type PublishModalProps = {
   onClose: () => void;
   slug: string | null;
   title: string;
+  baseUrl?: string;
   onPublish?: (expiresMinutes: number) => void;
   onUnpublish?: () => void;
   isPublished?: boolean;
 };
 
-export default function PublishModal({ isOpen, onClose, slug, title, onPublish, onUnpublish, isPublished }: PublishModalProps) {
+export default function PublishModal({ isOpen, onClose, slug, title, baseUrl, onPublish, onUnpublish, isPublished }: PublishModalProps) {
   const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -33,7 +34,8 @@ export default function PublishModal({ isOpen, onClose, slug, title, onPublish, 
     }
   }, [isOpen, onClose]);
 
-  const url = slug ? `${window.location.origin}/api/published/${slug}` : '';
+  const serverUrl = baseUrl || window.location.origin;
+  const url = slug ? `${serverUrl}/api/published/${slug}` : '';
 
   const handleCopy = async () => {
     try {

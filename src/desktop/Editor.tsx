@@ -17,9 +17,10 @@ type EditorProps = {
   isPreview?: boolean;
   onShare?: () => void;
   allNotes?: Note[];
+  baseUrl?: string;
 };
 
-export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, isPreview = false, onShare, allNotes = [] }: EditorProps) {
+export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, isPreview = false, onShare, allNotes = [], baseUrl }: EditorProps) {
   const { t } = useLanguage();
   const [content, setContent] = useState(note.content);
   const [title, setTitle] = useState(note.title);

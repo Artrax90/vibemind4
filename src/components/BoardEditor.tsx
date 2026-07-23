@@ -88,9 +88,9 @@ function freehandToPath(pts: string): string {
   return d;
 }
 
-type Props = { content: string; title?: string; onChange: (c: string) => void; onTitleChange?: (t: string) => void; readOnly?: boolean; noteId?: string };
+type Props = { content: string; title?: string; onChange: (c: string) => void; onTitleChange?: (t: string) => void; readOnly?: boolean; noteId?: string; baseUrl?: string };
 
-export default function BoardEditor({ content, title: boardTitle, onChange, onTitleChange, readOnly, noteId }: Props) {
+export default function BoardEditor({ content, title: boardTitle, onChange, onTitleChange, readOnly, noteId, baseUrl }: Props) {
   const { t } = useLanguage();
   const ref = useRef<HTMLDivElement>(null);
   const [data, setData] = useState<BoardData>(() => parseBoard(content));
@@ -755,7 +755,7 @@ export default function BoardEditor({ content, title: boardTitle, onChange, onTi
         onClose={() => { setModalType(null); setModalComp(null); }}
         {...(modalType === 'share' ? { resourceId: noteId, resourceType: 'note', resourceName: boardTitle || 'Board' } : {})}
         {...(modalType === 'reminder' ? { onConfirm: async (data: any) => { const { api } = await import('../api/client'); await api.createReminder({ note_id: noteId, ...data }); } } : {})}
-        {...(modalType === 'publish' ? { slug: publishSlug, title: boardTitle || 'Board', isPublished, onPublish: async (expiresHours: number) => {
+        {...(modalType === 'publish' ? { slug: publishSlug, title: boardTitle || 'Board', baseUrl, isPublished, onPublish: async (expiresHours: number) => {
           const { api } = await import('../api/client');
           const result = await api.publishNote(noteId!, expiresHours);
           if (result.slug) { setPublishSlug(result.slug); setIsPublished(true); }
