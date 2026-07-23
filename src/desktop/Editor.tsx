@@ -45,7 +45,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   }, [note.id, note.content, note.title]);
 
   useEffect(() => {
-    if (isReadOnly || (content === note.content && title === note.title)) return;
+    if (isReadOnly) return;
     
     setIsSaving(true);
     const timer = setTimeout(() => {
@@ -54,7 +54,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [content, title, note.id, note.content, note.title, onUpdate]);
+  }, [content, title]);
 
   // Custom renderer for tags and wikilinks
   const renderContent = (text: string) => {

@@ -426,22 +426,24 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
             </button>
           )}
 
-          <button
-            onClick={() => setShowReminderModal(true)}
-            className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
-            title={t('editor.reminder') || 'Напоминание'}
-          >
-            <Bell size={18} />
-          </button>
+          {!isPreview && (
+            <>
+              <button
+                onClick={() => setShowReminderModal(true)}
+                className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
+                title={t('editor.reminder') || 'Напоминание'}
+              >
+                <Bell size={18} />
+              </button>
 
-          <button
-            onClick={async () => {
-              const { api } = await import('../api/client');
-              const status = await api.getCalendarStatus();
-              if (!status.connected) {
-                alert(t('editor.calendarNotConnected') || 'Подключите Google Calendar в настройках');
-                return;
-              }
+              <button
+                onClick={async () => {
+                  const { api } = await import('../api/client');
+                  const status = await api.getCalendarStatus();
+                  if (!status.connected) {
+                    alert(t('editor.calendarNotConnected') || 'Подключите Google Calendar в настройках');
+                    return;
+                  }
               const now = new Date();
               const later = new Date(now.getTime() + 60 * 60 * 1000);
               await api.createCalendarEvent({
@@ -457,6 +459,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
           >
             <CalendarPlus size={18} />
           </button>
+          </>}
 
           {note.permission === 'owner' && (
             <button

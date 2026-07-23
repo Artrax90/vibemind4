@@ -1,5 +1,6 @@
 import { Capacitor } from '@capacitor/core';
 import { CapacitorSQLite, SQLiteConnection, SQLiteDBConnection } from '@capacitor-community/sqlite';
+import { encryptPassword, decryptPassword } from './crypto';
 
 const isElectron = !!(window as any).electronAPI;
 const isNative = Capacitor.isNativePlatform();
@@ -86,25 +87,37 @@ export const initDB = async () => {
 
 export const dbApi = {
   async getSyncConfig() {
-    if (isElectron) return (window as any).electronAPI.getSyncConfig();
-    if (isNative && db) {
+    let config: any;
+    if (isElectron) {
+      config = await (window as any).electronAPI.getSyncConfig();
+    } else if (isNative && db) {
       const res = await db.query('SELECT * FROM sync_config');
-      const config: any = {};
+      config = {};
       res.values?.forEach(row => { config[row.key] = row.value; });
-      return config;
+    } else {
+      config = JSON.parse(localStorage.getItem('sync_config') || '{}');
     }
-    return JSON.parse(localStorage.getItem('sync_config') || '{}');
+    // Decrypt password
+    if (config.password) {
+      config.password = await decryptPassword(config.password);
+    }
+    return config;
   },
 
   async saveSyncConfig(config: any) {
-    if (isElectron) return (window as any).electronAPI.saveSyncConfig(config);
+    // Encrypt password before saving
+    const configToSave = { ...config };
+    if (configToSave.password) {
+      configToSave.password = await encryptPassword(configToSave.password);
+    }
+    if (isElectron) return (window as any).electronAPI.saveSyncConfig(configToSave);
     if (isNative && db) {
-      for (const [key, value] of Object.entries(config)) {
+      for (const [key, value] of Object.entries(configToSave)) {
         await db.run('INSERT OR REPLACE INTO sync_config (key, value) VALUES (?, ?)', [key, String(value)]);
       }
       return;
     }
-    localStorage.setItem('sync_config', JSON.stringify(config));
+    localStorage.setItem('sync_config', JSON.stringify(configToSave));
   },
 
   async getNotes() {
