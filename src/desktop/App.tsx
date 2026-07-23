@@ -629,17 +629,22 @@ export default function App() {
         notes={notes}
         isEditing={!!editingReminder}
         onConfirm={async (data) => {
-          if (editingReminder) { await api.deleteReminder(editingReminder.id); }
-          let noteId = data.note_id || null;
-          if (!noteId && data.note_title) {
-            const note = await api.createNote({ title: data.note_title, content: '' });
-            noteId = note.id;
+          try {
+            if (editingReminder) { await api.deleteReminder(editingReminder.id); }
+            let noteId = data.note_id || null;
+            if (!noteId && data.note_title) {
+              const note = await api.createNote({ title: data.note_title, content: '' });
+              noteId = note.id;
+            }
+            await api.createReminder({ note_id: noteId, remind_at: data.remind_at, repeat_type: data.repeat_type, message: data.message });
+            const [updatedNotes, updatedReminders] = await Promise.all([api.getNotes(), api.getReminders()]);
+            setNotes(updatedNotes || []);
+            setReminders(updatedReminders || []);
+            setEditingReminder(null);
+          } catch (e) {
+            console.error('Failed to create reminder:', e);
+            alert('Failed to create reminder. Check server connection.');
           }
-          await api.createReminder({ note_id: noteId, remind_at: data.remind_at, repeat_type: data.repeat_type, message: data.message });
-          const [updatedNotes, updatedReminders] = await Promise.all([api.getNotes(), api.getReminders()]);
-          setNotes(updatedNotes || []);
-          setReminders(updatedReminders || []);
-          setEditingReminder(null);
         }}
       />
 
