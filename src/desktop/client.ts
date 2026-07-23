@@ -596,9 +596,13 @@ ${context}
       const token = await this.getServerToken();
       if (!token) return [];
       const url = this.getNormalizedUrl();
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 10000);
       const res = await fetch(`${url}/api/reminders`, {
-        headers: { 'Authorization': `Bearer ${token}` }
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: controller.signal
       });
+      clearTimeout(timeout);
       if (!res.ok) return [];
       return await res.json();
     } catch (e) {
@@ -608,18 +612,23 @@ ${context}
   },
 
   async createReminder(data: any): Promise<any> {
-    const config = await dbApi.getSyncConfig();
-    if (!config.server_url || !config.username) throw new Error('Not configured');
-    const token = await this.getServerToken();
-    if (!token) throw new Error('No token');
-    const url = this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/reminders`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(data)
-    });
-    if (!res.ok) throw new Error('Failed to create reminder');
-    return await res.json();
+    try {
+      const config = await dbApi.getSyncConfig();
+      if (!config.server_url || !config.username) throw new Error('Not configured');
+      const token = await this.getServerToken();
+      if (!token) throw new Error('No token');
+      const url = this.getNormalizedUrl();
+      const res = await fetch(`${url}/api/reminders`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(data)
+      });
+      if (!res.ok) throw new Error('Failed to create reminder');
+      return await res.json();
+    } catch (e) {
+      console.error('createReminder error:', e);
+      throw e;
+    }
   },
 
   async deleteReminder(id: string): Promise<void> {

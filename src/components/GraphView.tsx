@@ -182,7 +182,8 @@ export default function GraphView({ notes, activeNoteId, onNodeClick }: GraphVie
         onNodeClick={(node) => onNodeClick(node.id as string)}
         nodeRelSize={6}
         linkWidth={1.5}
-        d3VelocityDecay={0.3}
+        d3VelocityDecay={0.6}
+        d3AlphaDecay={0.05}
         nodeCanvasObject={(node: any, ctx, globalScale) => {
           const label = node.name;
           const fontSize = 12 / globalScale;
