@@ -792,6 +792,35 @@ ${context}
     return await res.json();
   },
 
+  async publishNote(noteId: string, expiresHours?: number): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) throw new Error('Server not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('Not authenticated');
+    const url = await this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/notes/${noteId}/publish`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expires_hours: expiresHours })
+    });
+    if (!res.ok) throw new Error('Failed to publish');
+    return await res.json();
+  },
+
+  async unpublishNote(noteId: string): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url || !config.username) throw new Error('Server not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('Not authenticated');
+    const url = await this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/notes/${noteId}/unpublish`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}` }
+    });
+    if (!res.ok) throw new Error('Failed to unpublish');
+    return await res.json();
+  },
+
   async testBotConnectionDirect(tgToken: string): Promise<any> {
     try {
       const res = await fetch(`https://api.telegram.org/bot${tgToken}/getMe`);

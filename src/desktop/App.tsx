@@ -65,6 +65,7 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [isFocusMode, setIsFocusMode] = useState(false);
   const [chatOpen, setChatOpen] = useState(true);
+  const [baseUrl, setBaseUrl] = useState('');
   const [expandedDay, setExpandedDay] = useState<string | null>(null);
   const [calMonth, setCalMonth] = useState(() => new Date().getMonth());
   const [calYear, setCalYear] = useState(() => new Date().getFullYear());
@@ -104,6 +105,8 @@ export default function App() {
 
   useEffect(() => {
     setIsLoading(true);
+    // Load server URL for share links
+    api.getNormalizedUrl().then(url => { if (url) setBaseUrl(url); });
     Promise.all([api.getNotes(), api.getFolders(), api.getReminders()]).then(([fetchedNotes, fetchedFolders, fetchedReminders]) => {
       setNotes(fetchedNotes || []);
       setFolders(fetchedFolders || []);
@@ -567,6 +570,7 @@ export default function App() {
         {shareModalOpen && shareResource && (
           <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)}
             resourceId={shareResource.id} resourceType={shareResource.type} resourceName={shareResource.name}
+            baseUrl={baseUrl}
             onShareStatusChange={(isShared) => {
               if (shareResource.id) {
                 if (shareResource.type === 'note') { setNotes(prev => prev.map(n => n.id === shareResource.id ? { ...n, isSharedByMe: isShared } : n)); }
