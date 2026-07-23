@@ -590,16 +590,21 @@ ${context}
   },
 
   async getReminders(): Promise<any[]> {
-    const config = await dbApi.getSyncConfig();
-    if (!config.server_url || !config.username) return [];
-    const token = await this.getServerToken();
-    if (!token) return [];
-    const url = this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/reminders`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    if (!res.ok) return [];
-    return await res.json();
+    try {
+      const config = await dbApi.getSyncConfig();
+      if (!config.server_url || !config.username) return [];
+      const token = await this.getServerToken();
+      if (!token) return [];
+      const url = this.getNormalizedUrl();
+      const res = await fetch(`${url}/api/reminders`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('getReminders error:', e);
+      return [];
+    }
   },
 
   async createReminder(data: any): Promise<any> {

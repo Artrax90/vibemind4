@@ -307,8 +307,12 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
     }
   };
 
-  // Poll bot status
+  // Poll bot status only if token is configured
   useEffect(() => {
+    if (!botToken) {
+      setBotStatus({ status: 'disconnected' });
+      return;
+    }
     const checkStatus = async () => {
       try {
         const data = await getBotStatus();
@@ -319,9 +323,9 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
     };
     
     checkStatus();
-    const interval = setInterval(checkStatus, 5000); // Poll every 5 seconds
+    const interval = setInterval(checkStatus, 10000); // Poll every 10 seconds
     return () => clearInterval(interval);
-  }, []);
+  }, [botToken]);
 
   const handleSave = async () => {
     setIsSaving(true);
