@@ -643,6 +643,32 @@ ${context}
   },
 
   async createReminder(data: any): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    
+    // If server is configured, create on server only (no local duplicate)
+    if (config.server_url && config.username) {
+      try {
+        const token = await this.getServerToken();
+        if (token) {
+          const url = await this.getNormalizedUrl();
+          const res = await fetch(`${url}/api/reminders`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+          if (res.ok) {
+            const serverReminder = await res.json();
+            // Save server response locally
+            await dbApi.saveReminder({ ...serverReminder, is_dirty: 0 });
+            return serverReminder;
+          }
+        }
+      } catch (e) {
+        console.error('[Reminders] Server creation failed, saving locally:', e);
+      }
+    }
+    
+    // Fallback: save locally (offline mode)
     const reminder = {
       id: data.id || `r${Date.now()}`,
       note_id: data.note_id || null,
@@ -653,28 +679,7 @@ ${context}
       is_dirty: 1,
       updated_at: new Date().toISOString()
     };
-
-    // Save locally first
     await dbApi.saveReminder(reminder);
-
-    // Try to sync with server
-    try {
-      const config = await dbApi.getSyncConfig();
-      if (config.server_url && config.username) {
-        const token = await this.getServerToken();
-        if (token) {
-          const url = await this.getNormalizedUrl();
-          await fetch(`${url}/api/reminders`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
-          });
-        }
-      }
-    } catch (e) {
-      console.error('[Reminders] Server sync failed:', e);
-    }
-
     return reminder;
   },
 
