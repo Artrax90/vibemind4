@@ -235,6 +235,18 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
     loadSettings();
   }, []);
 
+  // Auto-check connection status when settings are loaded
+  useEffect(() => {
+    if (syncConfig.server_url && syncConfig.username) {
+      setConnectionStatus('testing');
+      fetch(`${syncConfig.server_url}/api/users/me`, {
+        headers: { 'Authorization': `Basic ${btoa(`${syncConfig.username}:${syncConfig.password}`)}` }
+      })
+      .then(res => setConnectionStatus(res.ok ? 'success' : 'error'))
+      .catch(() => setConnectionStatus('error'));
+    }
+  }, [syncConfig.server_url, syncConfig.username]);
+
   useEffect(() => {
     if (activeTab === 'users' && currentUser?.role === 'admin') {
       api.getUsers().then(setUsers).catch(console.error);

@@ -592,21 +592,31 @@ ${context}
   async getReminders(): Promise<any[]> {
     try {
       const config = await dbApi.getSyncConfig();
-      if (!config.server_url || !config.username) return [];
+      if (!config.server_url || !config.username) {
+        console.log('[Reminders] No server configured, returning empty');
+        return [];
+      }
       const token = await this.getServerToken();
-      if (!token) return [];
+      if (!token) {
+        console.log('[Reminders] No token available, returning empty');
+        return [];
+      }
       const url = this.getNormalizedUrl();
+      console.log(`[Reminders] Fetching from ${url}/api/reminders`);
       const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
+      const timeout = setTimeout(() => controller.abort(), 15000);
       const res = await fetch(`${url}/api/reminders`, {
         headers: { 'Authorization': `Bearer ${token}` },
         signal: controller.signal
       });
       clearTimeout(timeout);
+      console.log(`[Reminders] Response status: ${res.status}`);
       if (!res.ok) return [];
-      return await res.json();
+      const data = await res.json();
+      console.log(`[Reminders] Got ${Array.isArray(data) ? data.length : 0} reminders`);
+      return data;
     } catch (e) {
-      console.error('getReminders error:', e);
+      console.error('[Reminders] Error:', e);
       return [];
     }
   },

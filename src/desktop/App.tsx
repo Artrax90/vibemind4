@@ -643,7 +643,6 @@ export default function App() {
             setEditingReminder(null);
           } catch (e) {
             console.error('Failed to create reminder:', e);
-            alert('Failed to create reminder. Check server connection.');
           }
         }}
       />
