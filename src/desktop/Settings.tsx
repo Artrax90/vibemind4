@@ -607,11 +607,11 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         <div>
                           <div className="text-xs text-muted-foreground">{t('settings.telegramBot')}</div>
                           <div className="text-sm font-medium text-foreground">
-                            {botStatus.status === 'connected' ? (botStatus.username ? `@${botStatus.username}` : t('settings.live')) : t('settings.offline')}
+                            {!botToken ? t('settings.notConfigured') : botStatus.status === 'connected' ? (botStatus.username ? `@${botStatus.username}` : t('settings.live')) : t('settings.offline')}
                           </div>
                         </div>
                       </div>
-                      {botStatus.status === 'connected' ? (
+                      {botToken && botStatus.status === 'connected' ? (
                         <CheckCircle size={16} className="text-accent" />
                       ) : (
                         <AlertCircle size={16} className="text-muted-foreground" />
