@@ -635,14 +635,19 @@ ${context}
   },
 
   async getCalendarStatus(): Promise<any> {
-    const config = await dbApi.getSyncConfig();
-    if (!config.server_url) return { connected: false, message: 'Server not configured' };
-    const token = await this.getServerToken();
-    if (!token) return { connected: false };
-    const url = this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/calendar/status`, { headers: { 'Authorization': `Bearer ${token}` } });
-    if (!res.ok) return { connected: false };
-    return await res.json();
+    try {
+      const config = await dbApi.getSyncConfig();
+      if (!config.server_url) return { connected: false, message: 'Server not configured' };
+      const token = await this.getServerToken();
+      if (!token) return { connected: false };
+      const url = this.getNormalizedUrl();
+      const res = await fetch(`${url}/api/calendar/status`, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) return { connected: false };
+      return await res.json();
+    } catch (e) {
+      console.error('getCalendarStatus error:', e);
+      return { connected: false };
+    }
   },
 
   async getCalendarAuthUrl(): Promise<any> {

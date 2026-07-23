@@ -583,7 +583,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
               <>
                 <section className="space-y-4">
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.systemStatus')}</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="bg-card p-4 rounded-xl border border-border/50 flex items-center justify-between shadow-premium">
                       <div className="flex items-center">
                         <Cpu size={18} className="mr-3 text-primary" />
@@ -595,23 +595,6 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         </div>
                       </div>
                       {providers.find(p => p.isActive)?.status === 'connected' ? (
-                        <CheckCircle size={16} className="text-accent" />
-                      ) : (
-                        <AlertCircle size={16} className="text-muted-foreground" />
-                      )}
-                    </div>
-
-                    <div className="bg-card p-4 rounded-xl border border-border/50 flex items-center justify-between">
-                      <div className="flex items-center">
-                        <MessageSquare size={18} className="mr-3 text-primary" />
-                        <div>
-                          <div className="text-xs text-muted-foreground">{t('settings.telegramBot')}</div>
-                          <div className="text-sm font-medium text-foreground">
-                            {!botToken ? t('settings.notConfigured') : botStatus.status === 'connected' ? (botStatus.username ? `@${botStatus.username}` : t('settings.live')) : t('settings.offline')}
-                          </div>
-                        </div>
-                      </div>
-                      {botToken && botStatus.status === 'connected' ? (
                         <CheckCircle size={16} className="text-accent" />
                       ) : (
                         <AlertCircle size={16} className="text-muted-foreground" />
