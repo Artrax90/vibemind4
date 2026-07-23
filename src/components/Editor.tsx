@@ -459,7 +459,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
           >
             <CalendarPlus size={18} />
           </button>
-          </>}
+          </>
 
           {note.permission === 'owner' && (
             <button
