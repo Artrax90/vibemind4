@@ -114,7 +114,7 @@ export const api = {
 
   async getNormalizedUrl() {
     const config = await dbApi.getSyncConfig();
-    if (!config.server_url) return null;
+    if (!config.server_url) return '';
     let url = config.server_url.trim().replace(/\/$/, '');
     if (url && !url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'http://' + url;

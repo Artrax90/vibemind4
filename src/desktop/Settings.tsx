@@ -4,7 +4,7 @@ import CreateUserModal from '../components/modals/CreateUserModal';
 import AddDBModal from '../components/modals/AddDBModal';
 import { api, getAuthHeaders } from './client';
 import { useLanguage } from '../contexts/LanguageContext';
-import { updateSettings, getBotStatus, getSettings } from '../api/settings';
+import { updateSettings, getBotStatus } from '../api/settings';
 
 function GoogleCalendarSection() {
   const { t } = useLanguage();
@@ -201,12 +201,11 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   useEffect(() => {
     const loadSettings = async () => {
       try {
-        const me = await api.getMe();
-        console.log('Current user:', me);
-        setCurrentUser(me);
-        
-        const config = await getSettings();
+        const config = await api.getSettings();
         if (config) {
+          if (config.server_url || config.username || config.password) {
+            setSyncConfig({ server_url: config.server_url || '', username: config.username || '', password: config.password || '' });
+          }
           if (config.tg_token) setBotToken(config.tg_token);
           if (config.tg_admin_id) setAdminId(config.tg_admin_id);
           if (config.proxy_config) setProxyConfig(config.proxy_config);
