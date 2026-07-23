@@ -1,5 +1,10 @@
 !macro customUnInstall
-  MessageBox MB_YESNO "Do you want to delete all local data (notes and settings)?" IDYES +2
-  Goto +2
-  RMDir /r "$APPDATA\vibeMind"
+  MessageBox MB_YESNO "Delete all local data (notes, settings, cache)?" IDYES cleanup
+  Goto done
+cleanup:
+  RMDir /r "$APPDATA\VibeMind"
+  RMDir /r "$APPDATA\VibeMind Desktop"
+  RMDir /r "$LOCALAPPDATA\vibemind-desktop-updater"
+  RMDir /r "$LOCALAPPDATA\vibemind-updater"
+done:
 !macroend

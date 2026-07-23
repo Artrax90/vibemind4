@@ -591,23 +591,51 @@ ${context}
 
   async getReminders(): Promise<any[]> {
     try {
+      // First, get from local DB
+      const localReminders = await dbApi.getReminders() || [];
+      
+      // If server is configured, also sync from server
       const config = await dbApi.getSyncConfig();
-      if (!config.server_url || !config.username) return [];
-      // Force refresh token
-      cachedToken = null;
-      const token = await this.getServerToken();
-      if (!token) return [];
-      const url = this.getNormalizedUrl();
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000);
-      const res = await fetch(`${url}/api/reminders`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-        signal: controller.signal
-      });
-      clearTimeout(timeout);
-      if (!res.ok) return [];
-      const data = await res.json();
-      return Array.isArray(data) ? data : [];
+      if (config.server_url && config.username) {
+        try {
+          cachedToken = null;
+          const token = await this.getServerToken();
+          if (token) {
+            const url = this.getNormalizedUrl();
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000);
+            const res = await fetch(`${url}/api/reminders`, {
+              headers: { 'Authorization': `Bearer ${token}` },
+              signal: controller.signal
+            });
+            clearTimeout(timeout);
+            if (res.ok) {
+              const serverReminders = await res.json();
+              if (Array.isArray(serverReminders)) {
+                // Merge: server reminders take precedence
+                const merged = [...localReminders];
+                for (const sr of serverReminders) {
+                  const existingIdx = merged.findIndex((r: any) => r.id === sr.id);
+                  if (existingIdx >= 0) {
+                    merged[existingIdx] = sr;
+                  } else {
+                    merged.push(sr);
+                  }
+                }
+                // Save merged to local
+                for (const r of merged) {
+                  await dbApi.saveReminder(r);
+                }
+                return merged;
+              }
+            }
+          }
+        } catch (e) {
+          console.error('[Reminders] Server sync failed, using local only:', e);
+        }
+      }
+      
+      return localReminders;
     } catch (e) {
       console.error('[Reminders] Error:', e);
       return [];
@@ -615,35 +643,61 @@ ${context}
   },
 
   async createReminder(data: any): Promise<any> {
+    const reminder = {
+      id: data.id || `r${Date.now()}`,
+      note_id: data.note_id || null,
+      remind_at: data.remind_at,
+      repeat_type: data.repeat_type || 'none',
+      message: data.message || '',
+      is_sent: 0,
+      is_dirty: 1,
+      updated_at: new Date().toISOString()
+    };
+
+    // Save locally first
+    await dbApi.saveReminder(reminder);
+
+    // Try to sync with server
     try {
       const config = await dbApi.getSyncConfig();
-      if (!config.server_url || !config.username) throw new Error('Not configured');
-      const token = await this.getServerToken();
-      if (!token) throw new Error('No token');
-      const url = this.getNormalizedUrl();
-      const res = await fetch(`${url}/api/reminders`, {
-        method: 'POST',
-        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify(data)
-      });
-      if (!res.ok) throw new Error('Failed to create reminder');
-      return await res.json();
+      if (config.server_url && config.username) {
+        const token = await this.getServerToken();
+        if (token) {
+          const url = this.getNormalizedUrl();
+          await fetch(`${url}/api/reminders`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+          });
+        }
+      }
     } catch (e) {
-      console.error('createReminder error:', e);
-      throw e;
+      console.error('[Reminders] Server sync failed:', e);
     }
+
+    return reminder;
   },
 
   async deleteReminder(id: string): Promise<void> {
-    const config = await dbApi.getSyncConfig();
-    if (!config.server_url || !config.username) return;
-    const token = await this.getServerToken();
-    if (!token) return;
-    const url = this.getNormalizedUrl();
-    await fetch(`${url}/api/reminders/${id}`, {
-      method: 'DELETE',
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
+    // Delete locally
+    await dbApi.deleteReminder(id);
+
+    // Try to sync with server
+    try {
+      const config = await dbApi.getSyncConfig();
+      if (config.server_url && config.username) {
+        const token = await this.getServerToken();
+        if (token) {
+          const url = this.getNormalizedUrl();
+          await fetch(`${url}/api/reminders/${id}`, {
+            method: 'DELETE',
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        }
+      }
+    } catch (e) {
+      console.error('[Reminders] Server sync failed:', e);
+    }
   },
 
   async getCalendarStatus(): Promise<any> {

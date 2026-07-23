@@ -61,6 +61,17 @@ export const initDB = async () => {
           id TEXT PRIMARY KEY,
           type TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS reminders (
+          id TEXT PRIMARY KEY,
+          note_id TEXT,
+          remind_at TEXT NOT NULL,
+          repeat_type TEXT DEFAULT 'none',
+          message TEXT,
+          is_sent INTEGER DEFAULT 0,
+          is_dirty INTEGER DEFAULT 0,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+        );
       `;
       await db.execute(query);
     } catch (err) {
@@ -214,6 +225,41 @@ export const dbApi = {
     }
     const delItems = JSON.parse(localStorage.getItem('deleted_items') || '[]');
     localStorage.setItem('deleted_items', JSON.stringify(delItems.filter((item: any) => item.id !== id)));
+  },
+
+  async getReminders() {
+    if (isElectron) return (window as any).electronAPI.getReminders?.() || [];
+    if (isNative && db) {
+      const res = await db.query('SELECT * FROM reminders');
+      return res.values || [];
+    }
+    return JSON.parse(localStorage.getItem('reminders') || '[]');
+  },
+
+  async saveReminder(reminder: any) {
+    if (isElectron) return (window as any).electronAPI.saveReminder?.(reminder);
+    if (isNative && db) {
+      await db.run(
+        'INSERT OR REPLACE INTO reminders (id, note_id, remind_at, repeat_type, message, is_sent, is_dirty, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        [reminder.id, reminder.note_id || null, reminder.remind_at, reminder.repeat_type || 'none', reminder.message || '', reminder.is_sent ? 1 : 0, reminder.is_dirty !== undefined ? reminder.is_dirty : 1, reminder.updated_at || new Date().toISOString()]
+      );
+      return;
+    }
+    const reminders = await this.getReminders();
+    const idx = reminders.findIndex((r: any) => r.id === reminder.id);
+    if (idx >= 0) reminders[idx] = reminder;
+    else reminders.push(reminder);
+    localStorage.setItem('reminders', JSON.stringify(reminders));
+  },
+
+  async deleteReminder(id: string) {
+    if (isElectron) return (window as any).electronAPI.deleteReminder?.(id);
+    if (isNative && db) {
+      await db.run('DELETE FROM reminders WHERE id = ?', [id]);
+      return;
+    }
+    const reminders = await this.getReminders();
+    localStorage.setItem('reminders', JSON.stringify(reminders.filter((r: any) => r.id !== id)));
   },
 
   async clearData() {
