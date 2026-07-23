@@ -138,6 +138,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   const [logs, setLogs] = useState('');
   const [isLoadingLogs, setIsLoadingLogs] = useState(false);
   const [syncConfig, setSyncConfig] = useState({ server_url: '', username: '', password: '' });
+  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   
   // Proxy State
   const [proxyConfig, setProxyConfig] = useState({
@@ -546,7 +547,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                   <div>
                     <label className="block text-sm text-muted-foreground mb-1">{t('settings.serverUrl')}</label>
                     <input type="text" value={syncConfig.server_url} onChange={(e) => setSyncConfig({ ...syncConfig, server_url: e.target.value })}
-                      placeholder="http://localhost:3344" className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
+                      placeholder="https://your-server.com" className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -560,20 +561,43 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                         placeholder="••••••" className="w-full bg-background border border-border rounded-lg p-2.5 text-foreground focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-all" />
                     </div>
                   </div>
-                  <div className="flex items-center justify-between pt-2">
+                  <div className="flex items-center justify-between pt-2 gap-3">
                     <div className="flex items-center space-x-2">
                       <span className="text-xs text-muted-foreground">{t('settings.status')}:</span>
-                      <span className="text-xs text-muted-foreground">{t('settings.notTested')}</span>
+                      {connectionStatus === 'testing' && <span className="text-xs text-muted-foreground">{t('settings.testing')}</span>}
+                      {connectionStatus === 'success' && <span className="flex items-center text-accent text-xs"><CheckCircle size={14} className="mr-1" /> {t('settings.connected')}</span>}
+                      {connectionStatus === 'error' && <span className="flex items-center text-destructive text-xs"><AlertCircle size={14} className="mr-1" /> {t('settings.connFailed')}</span>}
+                      {connectionStatus === 'idle' && <span className="text-xs text-muted-foreground">{t('settings.notTested')}</span>}
                     </div>
-                    <button onClick={async () => {
-                      try {
-                        await api.updateSettings(syncConfig);
-                        setSaveSuccess(true);
-                        setTimeout(() => setSaveSuccess(false), 2000);
-                      } catch (e) { console.error(e); }
-                    }} className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors flex items-center text-sm">
-                      {saveSuccess ? <><Check size={14} className="mr-1" /> {t('settings.saved')}</> : t('settings.save')}
-                    </button>
+                    <div className="flex gap-2">
+                      <button onClick={async () => {
+                        setConnectionStatus('testing');
+                        try {
+                          const res = await fetch(`${syncConfig.server_url}/api/users/me`, {
+                            headers: { 'Authorization': `Basic ${btoa(`${syncConfig.username}:${syncConfig.password}`)}` }
+                          });
+                          if (res.ok) {
+                            setConnectionStatus('success');
+                          } else {
+                            setConnectionStatus('error');
+                          }
+                        } catch (e) {
+                          setConnectionStatus('error');
+                        }
+                      }} disabled={connectionStatus === 'testing' || !syncConfig.server_url}
+                        className="px-4 py-2 bg-secondary text-foreground hover:bg-secondary/80 rounded-lg border border-border/50 hover:border-primary transition-all text-sm disabled:opacity-50">
+                        {t('settings.testConnection')}
+                      </button>
+                      <button onClick={async () => {
+                        try {
+                          await api.updateSettings(syncConfig);
+                          setSaveSuccess(true);
+                          setTimeout(() => setSaveSuccess(false), 2000);
+                        } catch (e) { console.error(e); }
+                      }} className="px-4 py-2 bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors flex items-center text-sm">
+                        {saveSuccess ? <><Check size={14} className="mr-1" /> {t('settings.saved')}</> : t('settings.save')}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </section>
