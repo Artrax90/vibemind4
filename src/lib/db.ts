@@ -228,7 +228,7 @@ export const dbApi = {
   },
 
   async getReminders() {
-    if (isElectron) return (window as any).electronAPI.getReminders?.() || [];
+    if (isElectron) return (window as any).electronAPI.getReminders();
     if (isNative && db) {
       const res = await db.query('SELECT * FROM reminders');
       return res.values || [];
@@ -237,7 +237,7 @@ export const dbApi = {
   },
 
   async saveReminder(reminder: any) {
-    if (isElectron) return (window as any).electronAPI.saveReminder?.(reminder);
+    if (isElectron) return (window as any).electronAPI.saveReminder(reminder);
     if (isNative && db) {
       await db.run(
         'INSERT OR REPLACE INTO reminders (id, note_id, remind_at, repeat_type, message, is_sent, is_dirty, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
@@ -253,7 +253,7 @@ export const dbApi = {
   },
 
   async deleteReminder(id: string) {
-    if (isElectron) return (window as any).electronAPI.deleteReminder?.(id);
+    if (isElectron) return (window as any).electronAPI.deleteReminder(id);
     if (isNative && db) {
       await db.run('DELETE FROM reminders WHERE id = ?', [id]);
       return;

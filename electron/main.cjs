@@ -70,6 +70,16 @@ function initDb() {
         id TEXT PRIMARY KEY,
         type TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS reminders (
+        id TEXT PRIMARY KEY,
+        note_id TEXT,
+        remind_at TEXT NOT NULL,
+        repeat_type TEXT DEFAULT 'none',
+        message TEXT,
+        is_sent INTEGER DEFAULT 0,
+        is_dirty INTEGER DEFAULT 0,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Migration: Add missing columns if they don't exist
@@ -260,6 +270,22 @@ ipcMain.handle('db-clear-data', async () => {
   db.prepare('DELETE FROM folders').run();
   db.prepare('DELETE FROM sync_config').run();
   db.prepare('DELETE FROM deleted_items').run();
+  db.prepare('DELETE FROM reminders').run();
+  return { success: true };
+});
+
+ipcMain.handle('db-get-reminders', async () => {
+  return db.prepare('SELECT * FROM reminders').all();
+});
+
+ipcMain.handle('db-save-reminder', async (event, reminder) => {
+  const stmt = db.prepare('INSERT OR REPLACE INTO reminders (id, note_id, remind_at, repeat_type, message, is_sent, is_dirty, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  stmt.run(reminder.id, reminder.note_id || null, reminder.remind_at, reminder.repeat_type || 'none', reminder.message || '', reminder.is_sent ? 1 : 0, reminder.is_dirty !== undefined ? reminder.is_dirty : 1, reminder.updated_at || new Date().toISOString());
+  return { success: true };
+});
+
+ipcMain.handle('db-delete-reminder', async (event, id) => {
+  db.prepare('DELETE FROM reminders WHERE id = ?').run(id);
   return { success: true };
 });
 
