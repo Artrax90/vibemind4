@@ -601,7 +601,7 @@ ${context}
           cachedToken = null;
           const token = await this.getServerToken();
           if (token) {
-            const url = this.getNormalizedUrl();
+            const url = await this.getNormalizedUrl();
             const controller = new AbortController();
             const timeout = setTimeout(() => controller.abort(), 15000);
             const res = await fetch(`${url}/api/reminders`, {
@@ -663,7 +663,7 @@ ${context}
       if (config.server_url && config.username) {
         const token = await this.getServerToken();
         if (token) {
-          const url = this.getNormalizedUrl();
+          const url = await this.getNormalizedUrl();
           await fetch(`${url}/api/reminders`, {
             method: 'POST',
             headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -688,7 +688,7 @@ ${context}
       if (config.server_url && config.username) {
         const token = await this.getServerToken();
         if (token) {
-          const url = this.getNormalizedUrl();
+          const url = await this.getNormalizedUrl();
           await fetch(`${url}/api/reminders/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
@@ -706,7 +706,7 @@ ${context}
       if (!config.server_url) return { connected: false, message: 'Server not configured' };
       const token = await this.getServerToken();
       if (!token) return { connected: false };
-      const url = this.getNormalizedUrl();
+      const url = await this.getNormalizedUrl();
       const res = await fetch(`${url}/api/calendar/status`, { headers: { 'Authorization': `Bearer ${token}` } });
       if (!res.ok) return { connected: false };
       return await res.json();
@@ -721,7 +721,7 @@ ${context}
     if (!config.server_url) return {};
     const token = await this.getServerToken();
     if (!token) return {};
-    const url = this.getNormalizedUrl();
+    const url = await this.getNormalizedUrl();
     const res = await fetch(`${url}/api/calendar/auth`, { headers: { 'Authorization': `Bearer ${token}` } });
     if (!res.ok) return {};
     return await res.json();
@@ -732,7 +732,7 @@ ${context}
     if (!config.server_url) return;
     const token = await this.getServerToken();
     if (!token) return;
-    const url = this.getNormalizedUrl();
+    const url = await this.getNormalizedUrl();
     await fetch(`${url}/api/calendar/disconnect`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } });
   },
 
@@ -741,7 +741,7 @@ ${context}
     if (!config.server_url || !config.username) return [];
     const token = await this.getServerToken();
     if (!token) return [];
-    const url = this.getNormalizedUrl();
+    const url = await this.getNormalizedUrl();
     const res = await fetch(`${url}/api/external-dbs`, { headers: { 'Authorization': `Bearer ${token}` } });
     if (!res.ok) return [];
     return await res.json();
@@ -752,7 +752,7 @@ ${context}
     if (!config.server_url || !config.username) throw new Error('Not configured');
     const token = await this.getServerToken();
     if (!token) throw new Error('No token');
-    const url = this.getNormalizedUrl();
+    const url = await this.getNormalizedUrl();
     const res = await fetch(`${url}/api/external-dbs`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -767,7 +767,7 @@ ${context}
     if (!config.server_url || !config.username) throw new Error('Not configured');
     const token = await this.getServerToken();
     if (!token) throw new Error('No token');
-    const url = this.getNormalizedUrl();
+    const url = await this.getNormalizedUrl();
     const res = await fetch(`${url}/api/external-dbs/${dbId}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
@@ -796,7 +796,7 @@ ${context}
       try {
         const token = await this.getServerToken();
         if (token) {
-          const url = this.getNormalizedUrl();
+          const url = await this.getNormalizedUrl();
           const res = await fetch(`${url}/api/bot/test`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -850,7 +850,7 @@ ${context}
       try {
         const token = await this.getServerToken();
         if (token) {
-          const url = this.getNormalizedUrl();
+          const url = await this.getNormalizedUrl();
           const res = await fetch(`${url}/api/integrations/test`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
@@ -876,7 +876,7 @@ ${context}
       try {
         const token = await this.getServerToken();
         if (token) {
-          const url = this.getNormalizedUrl();
+          const url = await this.getNormalizedUrl();
           const res = await fetch(`${url}/api/proxy/test`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

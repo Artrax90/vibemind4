@@ -201,7 +201,7 @@ export default function App() {
       const now = new Date().toISOString();
       const newNotes = prev.map(n => n.id === id ? { ...n, ...updates, updated_at: now } : n);
       const updatedNote = newNotes.find(n => n.id === id);
-      if (updatedNote) api.createNote(updatedNote);
+      if (updatedNote) api.updateNote(id, updatedNote);
       return newNotes;
     });
   };
