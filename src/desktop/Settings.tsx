@@ -239,10 +239,15 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
   useEffect(() => {
     if (syncConfig.server_url && syncConfig.username) {
       setConnectionStatus('testing');
-      fetch(`${syncConfig.server_url}/api/users/me`, {
-        headers: { 'Authorization': `Basic ${btoa(`${syncConfig.username}:${syncConfig.password}`)}` }
+      api.getServerToken().then(token => {
+        if (!token) { setConnectionStatus('error'); return; }
+        return api.getNormalizedUrl().then(url => {
+          return fetch(`${url}/api/users/me`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+          });
+        });
       })
-      .then(res => setConnectionStatus(res.ok ? 'success' : 'error'))
+      .then(res => setConnectionStatus(res?.ok ? 'success' : 'error'))
       .catch(() => setConnectionStatus('error'));
     }
   }, [syncConfig.server_url, syncConfig.username]);
@@ -585,14 +590,12 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       <button onClick={async () => {
                         setConnectionStatus('testing');
                         try {
-                          const res = await fetch(`${syncConfig.server_url}/api/users/me`, {
-                            headers: { 'Authorization': `Basic ${btoa(`${syncConfig.username}:${syncConfig.password}`)}` }
+                          const token = await api.getServerToken();
+                          const url = await api.getNormalizedUrl();
+                          const res = await fetch(`${url}/api/users/me`, {
+                            headers: { 'Authorization': `Bearer ${token}` }
                           });
-                          if (res.ok) {
-                            setConnectionStatus('success');
-                          } else {
-                            setConnectionStatus('error');
-                          }
+                          setConnectionStatus(res.ok ? 'success' : 'error');
                         } catch (e) {
                           setConnectionStatus('error');
                         }
