@@ -252,8 +252,8 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
         headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` }
       })
       .then(res => res.json())
-      .then(setAllBots)
-      .catch(console.error);
+      .then(data => setAllBots(Array.isArray(data) ? data : []))
+      .catch(() => setAllBots([]));
     }
   }, [activeTab, currentUser]);
 
@@ -1191,7 +1191,7 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                   <div className="space-y-4">
                     <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.allBots')}</h3>
                     <div className="space-y-3">
-                      {allBots.map((bot, idx) => (
+                      {(allBots || []).map((bot, idx) => (
                         <div key={idx} className="bg-card p-4 rounded-lg border border-border/50 flex items-center space-x-4">
                           <div className="p-2 bg-secondary rounded-lg">
                             <MessageSquare size={20} className="text-muted-foreground" />

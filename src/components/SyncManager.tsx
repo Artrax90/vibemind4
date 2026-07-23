@@ -70,9 +70,10 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
 
       // 2. Pull updates from server
       log('Fetching remote data...');
-      const [notesRes, foldersRes] = await Promise.all([
+      const [notesRes, foldersRes, remindersRes] = await Promise.all([
         fetch(`${baseUrl}/api/notes`, { headers: { 'Authorization': `Bearer ${access_token}` } }),
-        fetch(`${baseUrl}/api/folders`, { headers: { 'Authorization': `Bearer ${access_token}` } })
+        fetch(`${baseUrl}/api/folders`, { headers: { 'Authorization': `Bearer ${access_token}` } }),
+        fetch(`${baseUrl}/api/reminders`, { headers: { 'Authorization': `Bearer ${access_token}` } }).catch(() => ({ ok: false, json: () => Promise.resolve([]) }))
       ]);
       
       if (!notesRes.ok) throw new Error(`Failed to fetch remote notes: ${notesRes.status}`);
@@ -80,6 +81,7 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
       
       const remoteNotes = await notesRes.json();
       const remoteFolders = await foldersRes.json();
+      const remoteReminders = remindersRes.ok ? await remindersRes.json() : [];
 
       const totalToSync = deletedItems.length + dirtyNotes.length + dirtyFolders.length + remoteNotes.length + remoteFolders.length;
       let currentSynced = 0;
@@ -273,8 +275,8 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
       // Always notify that sync is finished to alert any listeners
       window.dispatchEvent(new CustomEvent('sync-finished'));
       
-      if (hasChanges && onSyncComplete) {
-        // Give a small delay for DB to finalize
+      // Always refresh data after sync (including reminders)
+      if (onSyncComplete) {
         setTimeout(() => {
           onSyncComplete();
         }, 100);
