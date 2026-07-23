@@ -44,14 +44,18 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
     setTitle(note.title);
   }, [note.id, note.content, note.title]);
 
+  const lastSavedRef = useRef({ content: note.content, title: note.title });
+
   useEffect(() => {
     if (isReadOnly) return;
+    if (content === lastSavedRef.current.content && title === lastSavedRef.current.title) return;
     
     setIsSaving(true);
     const timer = setTimeout(() => {
+      lastSavedRef.current = { content, title };
       onUpdate(note.id, { content, title });
       setIsSaving(false);
-    }, 1000);
+    }, 800);
 
     return () => clearTimeout(timer);
   }, [content, title]);
