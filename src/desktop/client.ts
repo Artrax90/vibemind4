@@ -43,12 +43,11 @@ export const api = {
   async updateNote(id: string, updates: any) {
     const notes = await dbApi.getNotes();
     const note = notes.find((n: any) => n.id === id);
-    const updated_at = new Date().toISOString();
-    Object.assign(updates, { updated_at });
     if (note) {
-      await dbApi.saveNote({ ...note, ...updates, is_dirty: 1 });
+      const updated_at = new Date().toISOString();
+      await dbApi.saveNote({ ...note, ...updates, updated_at, is_dirty: 1 });
     }
-    return { success: true, ...updates };
+    return { success: true };
   },
   
   async createFolder(folder: any) {

@@ -259,7 +259,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   };
 
   const filteredNotes = allNotes.filter(n => 
-    n.title.toLowerCase().includes(autocompleteQuery.toLowerCase()) && n.id !== note.id
+    (n.title || '').toLowerCase().includes(autocompleteQuery.toLowerCase()) && n.id !== note.id
   );
 
   const insertMarkdown = (prefix: string, suffix: string = '') => {
@@ -382,9 +382,9 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   // Simple logic to find related notes (by tags or common words in title)
   const relatedNotes = allNotes.filter(n => 
     n.id !== note.id && 
-    (n.title.split(' ').some(word => word.length > 3 && note.title.includes(word)) || 
-     n.content.includes(`[[${note.title}]]`) ||
-     note.content.includes(`[[${n.title}]]`))
+    ((n.title || '').split(' ').some(word => word.length > 3 && (note.title || '').includes(word)) || 
+     (n.content || '').includes(`[[${note.title}]]`) ||
+     (note.content || '').includes(`[[${n.title}]]`))
   ).slice(0, 3);
 
   return (

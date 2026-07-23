@@ -203,10 +203,10 @@ export default function App() {
     setNotes(prev => {
       const now = new Date().toISOString();
       const newNotes = prev.map(n => n.id === id ? { ...n, ...updates, updated_at: now } : n);
-      const updatedNote = newNotes.find(n => n.id === id);
-      if (updatedNote) api.updateNote(id, updatedNote);
       return newNotes;
     });
+    // Save to DB after state update
+    api.updateNote(id, updates);
   };
 
   const addNote = (newNote: Note) => {
