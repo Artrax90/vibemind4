@@ -236,20 +236,18 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
   // Auto-check connection status when settings are loaded
   useEffect(() => {
-    if (syncConfig.server_url && syncConfig.username) {
+    if (syncConfig.server_url && syncConfig.username && syncConfig.password) {
       setConnectionStatus('testing');
-      api.getServerToken().then(token => {
-        if (!token) { setConnectionStatus('error'); return; }
-        return api.getNormalizedUrl().then(url => {
-          return fetch(`${url}/api/users/me`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-          });
-        });
+      const url = syncConfig.server_url.replace(/\/$/, '');
+      fetch(`${url}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: syncConfig.username, password: syncConfig.password })
       })
-      .then(res => setConnectionStatus(res?.ok ? 'success' : 'error'))
+      .then(res => setConnectionStatus(res.ok ? 'success' : 'error'))
       .catch(() => setConnectionStatus('error'));
     }
-  }, [syncConfig.server_url, syncConfig.username]);
+  }, [syncConfig.server_url, syncConfig.username, syncConfig.password]);
 
   useEffect(() => {
     if (activeTab === 'users' && currentUser?.role === 'admin') {
@@ -589,12 +587,13 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                       <button onClick={async () => {
                         setConnectionStatus('testing');
                         try {
-                          const token = await api.getServerToken();
-                          const url = await api.getNormalizedUrl();
-                          const res = await fetch(`${url}/api/users/me`, {
-                            headers: { 'Authorization': `Bearer ${token}` }
+                          const url = syncConfig.server_url.replace(/\/$/, '');
+                          const loginRes = await fetch(`${url}/api/auth/login`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ username: syncConfig.username, password: syncConfig.password })
                           });
-                          setConnectionStatus(res.ok ? 'success' : 'error');
+                          setConnectionStatus(loginRes.ok ? 'success' : 'error');
                         } catch (e) {
                           setConnectionStatus('error');
                         }
