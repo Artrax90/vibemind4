@@ -612,21 +612,29 @@ ${context}
             if (res.ok) {
               const serverReminders = await res.json();
               if (Array.isArray(serverReminders)) {
-                // Merge: server reminders take precedence
+                // Merge: server reminders take precedence, deduplicate by ID
                 const merged = [...localReminders];
                 for (const sr of serverReminders) {
                   const existingIdx = merged.findIndex((r: any) => r.id === sr.id);
                   if (existingIdx >= 0) {
                     merged[existingIdx] = sr;
                   } else {
-                    merged.push(sr);
+                    // Also check by remind_at to avoid duplicates with different IDs
+                    const byTimeIdx = merged.findIndex((r: any) => r.remind_at === sr.remind_at && r.message === sr.message);
+                    if (byTimeIdx >= 0) {
+                      merged[byTimeIdx] = sr; // Replace local with server version
+                    } else {
+                      merged.push(sr);
+                    }
                   }
                 }
-                // Save merged to local
+                // Save merged to local (only reminders with remind_at)
                 for (const r of merged) {
-                  await dbApi.saveReminder(r);
+                  if (r.remind_at) {
+                    await dbApi.saveReminder(r);
+                  }
                 }
-                return merged;
+                return merged.filter((r: any) => r.remind_at);
               }
             }
           }
@@ -645,7 +653,7 @@ ${context}
   async createReminder(data: any): Promise<any> {
     const config = await dbApi.getSyncConfig();
     
-    // If server is configured, create on server only (no local duplicate)
+    // If server is configured, create on server only
     if (config.server_url && config.username) {
       try {
         const token = await this.getServerToken();
@@ -657,10 +665,13 @@ ${context}
             body: JSON.stringify(data)
           });
           if (res.ok) {
-            const serverReminder = await res.json();
-            // Save server response locally
-            await dbApi.saveReminder({ ...serverReminder, is_dirty: 0 });
-            return serverReminder;
+            const serverData = await res.json();
+            // Merge server response with original data (server may not return all fields)
+            const merged = { ...data, ...serverData, is_dirty: 0 };
+            if (!merged.id) merged.id = `r${Date.now()}`;
+            if (!merged.remind_at) merged.remind_at = data.remind_at;
+            await dbApi.saveReminder(merged);
+            return merged;
           }
         }
       } catch (e) {
@@ -672,7 +683,7 @@ ${context}
     const reminder = {
       id: data.id || `r${Date.now()}`,
       note_id: data.note_id || null,
-      remind_at: data.remind_at,
+      remind_at: data.remind_at || new Date().toISOString(),
       repeat_type: data.repeat_type || 'none',
       message: data.message || '',
       is_sent: 0,
