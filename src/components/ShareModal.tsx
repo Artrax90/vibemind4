@@ -48,7 +48,8 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
 
   useEffect(() => {
     if (isOpen && resourceId && resourceType) {
-      loadShares();
+      // Don't auto-load shares from server — generate locally
+      setShares([]);
     }
   }, [isOpen, resourceId, resourceType]);
 
