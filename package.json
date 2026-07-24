@@ -19,9 +19,22 @@
   "build": {
     "appId": "com.vibemind.desktop.v3",
     "productName": "VibeMind Desktop App",
+    "compression": "maximum",
     "directories": {
       "output": "dist-electron"
     },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "!**/node_modules/@capacitor*/**",
+      "!**/node_modules/@capacitor-community/**",
+      "!**/*.dex",
+      "!**/*.class",
+      "!**/*.java",
+      "!**/*.swift",
+      "!**/*.podspec",
+      "!**/*.gradle"
+    ],
     "win": {
       "target": "nsis",
       "icon": "build/icon.png",
