@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Globe, Link as LinkIcon, Copy, Check, Lock, Unlock } from 'lucide-react';
+import { X, Globe, Link as LinkIcon, Copy, Check, Lock, Unlock, AlertCircle } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
+import { api } from '../api/client';
 
 type ShareModalProps = {
   isOpen: boolean;
@@ -18,6 +19,9 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
   const [copied, setCopied] = useState(false);
   const [permission, setPermission] = useState<'read' | 'write'>('read');
   const [shared, setShared] = useState(false);
+  const [shareId, setShareId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const effectiveBaseUrl = baseUrl || window.location.origin;
 
@@ -36,16 +40,18 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
     if (isOpen) {
       setCopied(false);
       setShared(false);
+      setShareId(null);
+      setError('');
       setPermission('read');
     }
   }, [isOpen]);
 
   if (!isOpen || !resourceId || !resourceType) return null;
 
-  const shareId = crypto.randomUUID();
-  const shareUrl = `${effectiveBaseUrl}/shared/${shareId}`;
+  const shareUrl = shareId ? `${effectiveBaseUrl}/shared/${shareId}` : '';
 
   const handleCopy = async () => {
+    if (!shareUrl) return;
     try {
       await navigator.clipboard.writeText(shareUrl);
       setCopied(true);
@@ -62,8 +68,24 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
     }
   };
 
-  const handleShare = () => {
-    setShared(true);
+  const handleShare = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await api.createShare(resourceType, resourceId, {
+        target_username: null,
+        permission,
+        is_public: 1
+      });
+      if (result && result.id) {
+        setShareId(result.id);
+        setShared(true);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to create share');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -83,7 +105,6 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
           className="w-full max-w-md bg-card border border-border/50 rounded-2xl shadow-2xl overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
-          {/* Header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
             <div className="flex items-center gap-2">
               <Globe size={18} className="text-primary" />
@@ -94,13 +115,11 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
             </button>
           </div>
 
-          {/* Content */}
           <div className="p-5 space-y-4">
             <p className="text-sm text-muted-foreground">
               {t('share.description') || 'Ссылка для доступа к'} <span className="font-medium text-foreground">{resourceName}</span>
             </p>
 
-            {/* Permission selector */}
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setPermission('read')}
@@ -116,13 +135,19 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
               </button>
             </div>
 
-            {/* Share URL */}
+            {error && (
+              <div className="flex items-center gap-2 text-sm text-destructive bg-destructive/10 px-3 py-2 rounded-lg">
+                <AlertCircle size={14} /> {error}
+              </div>
+            )}
+
             {!shared ? (
               <button
                 onClick={handleShare}
-                className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+                disabled={loading}
+                className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 text-sm font-medium disabled:opacity-50"
               >
-                <Globe size={16} /> {t('share.createLink') || 'Создать ссылку'}
+                {loading ? '...' : <><Globe size={16} /> {t('share.createLink') || 'Создать ссылку'}</>}
               </button>
             ) : (
               <div className="space-y-3">
