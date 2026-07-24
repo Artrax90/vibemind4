@@ -80,6 +80,10 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
       if (result && result.id) {
         setShareId(result.id);
         setShared(true);
+        // Update local note/folder to show share icon
+        if (resourceType === 'note') {
+          api.updateNote(resourceId, { isSharedByMe: true });
+        }
       }
     } catch (e: any) {
       setError(e.message || 'Failed to create share');
@@ -94,6 +98,10 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
       await api.deleteShare(shareId);
       setShared(false);
       setShareId(null);
+      // Clear share icon from local note
+      if (resourceType === 'note') {
+        api.updateNote(resourceId, { isSharedByMe: false });
+      }
     } catch (e: any) {
       setError(e.message || 'Failed to delete share');
     }
