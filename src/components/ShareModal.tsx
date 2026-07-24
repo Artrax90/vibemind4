@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Globe, Link as LinkIcon, Copy, Check } from 'lucide-react';
+import { X, Globe, Link as LinkIcon, Copy, Check, Lock, Unlock } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 
 type ShareModalProps = {
@@ -16,6 +16,8 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
   const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
+  const [permission, setPermission] = useState<'read' | 'write'>('read');
+  const [shared, setShared] = useState(false);
 
   const effectiveBaseUrl = baseUrl || window.location.origin;
 
@@ -30,16 +32,16 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [isOpen, onClose]);
 
-  // Reset state when modal opens
   useEffect(() => {
     if (isOpen) {
       setCopied(false);
+      setShared(false);
+      setPermission('read');
     }
   }, [isOpen]);
 
   if (!isOpen || !resourceId || !resourceType) return null;
 
-  // Generate share link locally — NO server calls
   const shareId = crypto.randomUUID();
   const shareUrl = `${effectiveBaseUrl}/shared/${shareId}`;
 
@@ -58,6 +60,10 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
+  };
+
+  const handleShare = () => {
+    setShared(true);
   };
 
   return (
@@ -94,23 +100,51 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
               {t('share.description') || 'Ссылка для доступа к'} <span className="font-medium text-foreground">{resourceName}</span>
             </p>
 
-            {/* Share URL */}
+            {/* Permission selector */}
             <div className="flex items-center gap-2">
-              <div className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm text-foreground font-mono truncate flex items-center gap-2">
-                <LinkIcon size={14} className="text-muted-foreground shrink-0" />
-                <span className="truncate">{shareUrl}</span>
-              </div>
               <button
-                onClick={handleCopy}
-                className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1 text-sm shrink-0"
+                onClick={() => setPermission('read')}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${permission === 'read' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
               >
-                {copied ? <><Check size={14} /> {t('share.copied') || 'Скопировано'}</> : <><Copy size={14} /> {t('share.copy') || 'Копировать'}</>}
+                <Lock size={14} /> {t('share.readOnly') || 'Только чтение'}
+              </button>
+              <button
+                onClick={() => setPermission('write')}
+                className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors ${permission === 'write' ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground hover:bg-muted/80'}`}
+              >
+                <Unlock size={14} /> {t('share.canEdit') || 'Можно редактировать'}
               </button>
             </div>
 
-            <p className="text-xs text-muted-foreground">
-              {t('share.hint') || 'Скопируйте ссылку и отправьте тому, кому хотите дать доступ.'}
-            </p>
+            {/* Share URL */}
+            {!shared ? (
+              <button
+                onClick={handleShare}
+                className="w-full px-4 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 text-sm font-medium"
+              >
+                <Globe size={16} /> {t('share.createLink') || 'Создать ссылку'}
+              </button>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex-1 bg-muted rounded-lg px-3 py-2 text-sm text-foreground font-mono truncate flex items-center gap-2">
+                    <LinkIcon size={14} className="text-muted-foreground shrink-0" />
+                    <span className="truncate">{shareUrl}</span>
+                  </div>
+                  <button
+                    onClick={handleCopy}
+                    className="px-3 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors flex items-center gap-1 text-sm shrink-0"
+                  >
+                    {copied ? <><Check size={14} /> {t('share.copied') || 'Скопировано'}</> : <><Copy size={14} /> {t('share.copy') || 'Копировать'}</>}
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {permission === 'read'
+                    ? (t('share.readOnlyHint') || 'Получатель сможет только читать заметку.')
+                    : (t('share.canEditHint') || 'Получатель сможет редактировать заметку.')}
+                </p>
+              </div>
+            )}
           </div>
         </motion.div>
       </motion.div>
