@@ -54,9 +54,10 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
 
   useEffect(() => {
     if (isOpen && onShareStatusChange) {
-      onShareStatusChange(shares.length > 0);
+      const hasShares = shares.length > 0;
+      onShareStatusChange(hasShares);
     }
-  }, [shares, isOpen, onShareStatusChange]);
+  }, [shares.length, isOpen]);
 
   const loadShares = async () => {
     if (!resourceId || !resourceType) return;
