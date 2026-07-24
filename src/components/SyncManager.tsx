@@ -303,7 +303,7 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
 
     window.addEventListener('force-sync', handleForceSync);
 
-    const interval = setInterval(performSync, 1 * 60 * 1000);
+    const interval = setInterval(performSync, 2 * 60 * 1000);
     return () => {
       clearInterval(interval);
       window.removeEventListener('force-sync', handleForceSync);

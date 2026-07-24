@@ -359,6 +359,15 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
         </div>
         
         <div className="flex items-center space-x-4">
+          {onShare && note.permission === 'owner' && (
+            <button
+              onClick={onShare}
+              className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
+              title={t('editor.share')}
+            >
+              <Share2 size={18} />
+            </button>
+          )}
           {!isReadOnly && (
             <button 
               onClick={handleSummarize}
