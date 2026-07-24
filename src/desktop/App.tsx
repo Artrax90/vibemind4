@@ -1,4 +1,4 @@
-import React, { useState, useEffect, Suspense } from 'react';
+import React, { useState, useEffect, Suspense, useCallback } from 'react';
 import { Component, ErrorInfo, ReactNode } from 'react';
 import Sidebar from '../components/Sidebar';
 import Editor from './Editor';
@@ -199,15 +199,14 @@ export default function App() {
 
   const activeNote = notes.find(n => n.id === activeNoteId);
 
-  const updateNote = (id: string, updates: Partial<Note>) => {
+  const updateNote = useCallback((id: string, updates: Partial<Note>) => {
     setNotes(prev => {
       const now = new Date().toISOString();
       const newNotes = prev.map(n => n.id === id ? { ...n, ...updates, updated_at: now } : n);
       return newNotes;
     });
-    // Save to DB after state update
     api.updateNote(id, updates);
-  };
+  }, []);
 
   const addNote = (newNote: Note) => {
     setNotes(prev => [...prev, newNote]);
