@@ -306,18 +306,6 @@ export default function App() {
     });
   }, []);
 
-  const handleShareStatusChange = useCallback((isShared: boolean) => {
-    if (shareResource.id) {
-      if (shareResource.type === 'note') {
-        setNotes(prev => prev.map(n => n.id === shareResource.id ? { ...n, isSharedByMe: isShared } : n));
-        api.updateNote(shareResource.id, { isSharedByMe: isShared });
-      } else if (shareResource.type === 'folder') {
-        setFolders(prev => prev.map(f => f.id === shareResource.id ? { ...f, isSharedByMe: isShared } : f));
-        api.updateFolder(shareResource.id, { isSharedByMe: isShared });
-      }
-    }
-  }, [shareResource]);
-
   return (
     <ErrorBoundary>
     <div className="flex h-screen w-full font-sans overflow-hidden bg-background text-foreground">
@@ -574,8 +562,7 @@ export default function App() {
         {shareModalOpen && shareResource && (
           <ShareModal isOpen={shareModalOpen} onClose={() => setShareModalOpen(false)}
             resourceId={shareResource.id} resourceType={shareResource.type} resourceName={shareResource.name}
-            baseUrl={baseUrl}
-            onShareStatusChange={handleShareStatusChange} />
+            baseUrl={baseUrl} />
         )}
       </AnimatePresence>
 

@@ -18,10 +18,9 @@ type ShareModalProps = {
   resourceType: 'note' | 'folder' | null;
   resourceName: string | null;
   baseUrl?: string;
-  onShareStatusChange?: (isShared: boolean) => void;
 };
 
-export default function ShareModal({ isOpen, onClose, resourceId, resourceType, resourceName, baseUrl, onShareStatusChange }: ShareModalProps) {
+export default function ShareModal({ isOpen, onClose, resourceId, resourceType, resourceName, baseUrl }: ShareModalProps) {
   const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const [username, setUsername] = useState('');
@@ -48,17 +47,9 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
 
   useEffect(() => {
     if (isOpen && resourceId && resourceType) {
-      // Don't auto-load shares from server — generate locally
       setShares([]);
     }
   }, [isOpen, resourceId, resourceType]);
-
-  useEffect(() => {
-    if (isOpen && onShareStatusChange) {
-      const hasShares = shares.length > 0;
-      onShareStatusChange(hasShares);
-    }
-  }, [shares.length, isOpen]);
 
   const loadShares = async () => {
     if (!resourceId || !resourceType) return;
