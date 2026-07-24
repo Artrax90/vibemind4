@@ -300,7 +300,7 @@ export default function App() {
   };
 
   const loadAllData = useCallback(() => {
-    Promise.all([api.getNotes(), api.getFolders(), api.getReminders(), api.getNormalizedUrl()]).then(([n, f, r, url]) => {
+    return Promise.all([api.getNotes(), api.getFolders(), api.getReminders(), api.getNormalizedUrl()]).then(([n, f, r, url]) => {
       setNotes(n || []); setFolders(f || []); setReminders(r || []);
       if (url) setBaseUrl(url);
     });
