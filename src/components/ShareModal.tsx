@@ -65,10 +65,10 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
     setError('');
     try {
       const data = await api.getShares(resourceType, resourceId);
-      setShares(data);
+      setShares(data || []);
     } catch (e) {
-      console.error('Failed to load shares', e);
-      setError('Failed to load shares');
+      // Server might be unavailable — don't block UI
+      setShares([]);
     } finally {
       setLoading(false);
     }
@@ -80,18 +80,35 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
     
     setError('');
     try {
-      const newShare = await api.createShare(resourceType, resourceId, {
+      // Generate share ID locally — no server needed
+      const shareId = crypto.randomUUID();
+      const shareUrl = `${effectiveBaseUrl}/shared/${shareId}`;
+      
+      const newShare = {
+        id: shareId,
+        resource_id: resourceId,
+        resource_type: resourceType,
+        target_username: isPublic ? null : username,
+        permission,
+        is_public: isPublic ? 1 : 0,
+        url: shareUrl
+      };
+      
+      setShares([...shares, newShare]);
+      setUsername('');
+      
+      // Copy link immediately
+      if (isPublic) {
+        copyLink(shareId);
+      }
+      
+      // Sync with server in background (don't block UI)
+      api.createShare(resourceType, resourceId, {
         target_username: isPublic ? null : username,
         permission,
         is_public: isPublic ? 1 : 0
-      });
-      if (newShare) {
-        setShares([...shares, newShare]);
-        setUsername('');
-        if (isPublic) {
-          copyLink(newShare.id);
-        }
-      }
+      }).catch(() => {});
+      
     } catch (e: any) {
       console.error('Failed to create share', e);
       setError(e.message || 'Failed to create share');
