@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, Globe, Link as LinkIcon, Copy, Check, Lock, Unlock, AlertCircle } from 'lucide-react';
+import { X, Globe, Link as LinkIcon, Copy, Check, Lock, Unlock, AlertCircle, Trash2 } from 'lucide-react';
 import { useLanguage } from '../contexts/LanguageContext';
 import { api } from '../api/client';
 
@@ -88,6 +88,17 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
     }
   };
 
+  const handleDeleteShare = async () => {
+    if (!shareId) return;
+    try {
+      await api.deleteShare(shareId);
+      setShared(false);
+      setShareId(null);
+    } catch (e: any) {
+      setError(e.message || 'Failed to delete share');
+    }
+  };
+
   return (
     <AnimatePresence>
       <motion.div
@@ -163,11 +174,19 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
                     {copied ? <><Check size={14} /> {t('share.copied') || 'Скопировано'}</> : <><Copy size={14} /> {t('share.copy') || 'Копировать'}</>}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  {permission === 'read'
-                    ? (t('share.readOnlyHint') || 'Получатель сможет только читать заметку.')
-                    : (t('share.canEditHint') || 'Получатель сможет редактировать заметку.')}
-                </p>
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-muted-foreground">
+                    {permission === 'read'
+                      ? (t('share.readOnlyHint') || 'Получатель сможет только читать.')
+                      : (t('share.canEditHint') || 'Получатель сможет редактировать.')}
+                  </p>
+                  <button
+                    onClick={handleDeleteShare}
+                    className="flex items-center gap-1 text-xs text-destructive hover:text-destructive/80 transition-colors"
+                  >
+                    <Trash2 size={12} /> {t('share.delete') || 'Удалить'}
+                  </button>
+                </div>
               </div>
             )}
           </div>
