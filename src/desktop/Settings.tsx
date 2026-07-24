@@ -705,11 +705,12 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
                     <button 
                       onClick={() => {
                         window.dispatchEvent(new CustomEvent('force-sync'));
-                        alert(t('settings.syncStarted') || 'Синхронизация запущена');
+                        setSaveSuccess(true);
+                        setTimeout(() => setSaveSuccess(false), 2000);
                       }}
-                      className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center"
+                      className={`px-4 py-2 ${saveSuccess ? 'bg-emerald-500 text-white' : 'bg-primary/10 text-primary hover:bg-primary/20'} rounded-lg transition-colors flex items-center`}
                     >
-                      <RefreshCw size={16} className="mr-2" /> {t('settings.syncNow') || 'Синхронизировать'}
+                      {saveSuccess ? <><Check size={16} className="mr-2" /> {t('settings.syncStarted') || 'Готово'}</> : <><RefreshCw size={16} className="mr-2" /> {t('settings.syncNow') || 'Синхронизировать'}</>}
                     </button>
                   </div>
                   <div className="bg-card p-4 rounded-lg border border-border/50 flex flex-col items-center gap-3 text-center">
