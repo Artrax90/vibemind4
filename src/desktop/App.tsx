@@ -105,17 +105,7 @@ export default function App() {
 
   useEffect(() => {
     setIsLoading(true);
-    // Load server URL for share links
-    api.getNormalizedUrl().then(url => { if (url) setBaseUrl(url); });
-    Promise.all([api.getNotes(), api.getFolders(), api.getReminders()]).then(([fetchedNotes, fetchedFolders, fetchedReminders]) => {
-      setNotes(fetchedNotes || []);
-      setFolders(fetchedFolders || []);
-      setReminders(fetchedReminders || []);
-      setIsLoading(false);
-    }).catch(err => {
-      console.error("Failed to fetch data", err);
-      setIsLoading(false);
-    });
+    loadAllData().then(() => setIsLoading(false)).catch(() => setIsLoading(false));
   }, []);
 
   useEffect(() => {
@@ -309,14 +299,17 @@ export default function App() {
     finally { dbApi.quitApp(); }
   };
 
+  const loadAllData = useCallback(() => {
+    Promise.all([api.getNotes(), api.getFolders(), api.getReminders(), api.getNormalizedUrl()]).then(([n, f, r, url]) => {
+      setNotes(n || []); setFolders(f || []); setReminders(r || []);
+      if (url) setBaseUrl(url);
+    });
+  }, []);
+
   return (
     <ErrorBoundary>
     <div className="flex h-screen w-full font-sans overflow-hidden bg-background text-foreground">
-      <SyncManager onSyncComplete={() => {
-        Promise.all([api.getNotes(), api.getFolders(), api.getReminders()]).then(([n, f, r]) => {
-          setNotes(n || []); setFolders(f || []); setReminders(r || []);
-        });
-      }} />
+      <SyncManager onSyncComplete={loadAllData} />
 
       {isMobileMenuOpen && (
         <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setIsMobileMenuOpen(false)} />
