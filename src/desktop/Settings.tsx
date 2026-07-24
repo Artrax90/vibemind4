@@ -697,6 +697,21 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
 
                 <section className="space-y-4">
                   <h3 className="font-serif text-xl font-semibold text-foreground">{t('settings.dataManagement')}</h3>
+                  <div className="bg-card p-4 rounded-lg border border-border/50 flex justify-between items-center">
+                    <div>
+                      <div className="text-foreground font-medium">{t('settings.syncNow') || 'Синхронизировать'}</div>
+                      <div className="text-sm text-muted-foreground">{t('settings.syncNowDesc') || 'Принудительно синхронизировать данные с сервером'}</div>
+                    </div>
+                    <button 
+                      onClick={() => {
+                        window.dispatchEvent(new CustomEvent('force-sync'));
+                        alert(t('settings.syncStarted') || 'Синхронизация запущена');
+                      }}
+                      className="px-4 py-2 bg-primary/10 text-primary hover:bg-primary/20 rounded-lg transition-colors flex items-center"
+                    >
+                      <RefreshCw size={16} className="mr-2" /> {t('settings.syncNow') || 'Синхронизировать'}
+                    </button>
+                  </div>
                   <div className="bg-card p-4 rounded-lg border border-border/50 flex flex-col items-center gap-3 text-center">
                     <div>
                       <div className="text-foreground font-medium">{t('settings.reindexSearch')}</div>
