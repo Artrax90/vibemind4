@@ -80,39 +80,26 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
     if (!resourceId || !resourceType) return;
     
     setError('');
-    try {
-      // Generate share ID locally — no server needed
-      const shareId = crypto.randomUUID();
-      const shareUrl = `${effectiveBaseUrl}/shared/${shareId}`;
-      
-      const newShare = {
-        id: shareId,
-        resource_id: resourceId,
-        resource_type: resourceType,
-        target_username: isPublic ? null : username,
-        permission,
-        is_public: isPublic ? 1 : 0,
-        url: shareUrl
-      };
-      
-      setShares([...shares, newShare]);
-      setUsername('');
-      
-      // Copy link immediately
-      if (isPublic) {
-        copyLink(shareId);
-      }
-      
-      // Sync with server in background (don't block UI)
-      api.createShare(resourceType, resourceId, {
-        target_username: isPublic ? null : username,
-        permission,
-        is_public: isPublic ? 1 : 0
-      }).catch(() => {});
-      
-    } catch (e: any) {
-      console.error('Failed to create share', e);
-      setError(e.message || 'Failed to create share');
+    // Generate share ID and link locally — NO server calls
+    const shareId = crypto.randomUUID();
+    const shareUrl = `${effectiveBaseUrl}/shared/${shareId}`;
+    
+    const newShare = {
+      id: shareId,
+      resource_id: resourceId,
+      resource_type: resourceType,
+      target_username: isPublic ? null : username,
+      permission,
+      is_public: isPublic ? 1 : 0,
+      url: shareUrl
+    };
+    
+    setShares([...shares, newShare]);
+    setUsername('');
+    
+    // Copy link immediately
+    if (isPublic) {
+      copyLink(shareId);
     }
   };
 
