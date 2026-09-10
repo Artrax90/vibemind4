@@ -598,69 +598,21 @@ ${context}
 
   async getReminders(): Promise<any[]> {
     try {
-      // First, get from local DB
       const localReminders = await dbApi.getReminders() || [];
-      
-      // If server is configured, also sync from server
-      const config = await dbApi.getSyncConfig();
-      if (config.server_url && config.username) {
-        try {
-          cachedToken = null;
-          const token = await this.getServerToken();
-          if (token) {
-            const url = await this.getNormalizedUrl();
-            const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), 15000);
-            const res = await fetch(`${url}/api/reminders`, {
-              headers: { 'Authorization': `Bearer ${token}` },
-              signal: controller.signal
-            });
-            clearTimeout(timeout);
-            if (res.ok) {
-              const serverReminders = await res.json();
-              if (Array.isArray(serverReminders)) {
-                const deletedItems = dbApi.getDeletedItems ? await dbApi.getDeletedItems() : [];
-                const deletedReminderIds = new Set(
-                  (deletedItems || []).filter((item: any) => item.type === 'reminder').map((item: any) => item.id)
-                );
-                // Merge: server reminders take precedence, deduplicate by ID
-                const merged = [...localReminders];
-                for (const sr of serverReminders) {
-                  if (deletedReminderIds.has(sr.id)) {
-                    continue; // Skip resurrecting locally deleted reminder awaiting sync
-                  }
-                  const existingIdx = merged.findIndex((r: any) => r.id === sr.id);
-                  if (existingIdx >= 0) {
-                    merged[existingIdx] = sr;
-                  } else {
-                    // Also check by remind_at to avoid duplicates with different IDs
-                    const byTimeIdx = merged.findIndex((r: any) => r.remind_at === sr.remind_at && r.message === sr.message);
-                    if (byTimeIdx >= 0) {
-                      merged[byTimeIdx] = sr; // Replace local with server version
-                    } else {
-                      merged.push(sr);
-                    }
-                  }
-                }
-                // Save merged to local (only reminders with remind_at)
-                for (const r of merged) {
-                  if (r.remind_at) {
-                    await dbApi.saveReminder(r);
-                  }
-                }
-                return merged.filter((r: any) => r.remind_at);
-              }
-            }
-          }
-        } catch (e) {
-          console.error('[Reminders] Server sync failed, using local only:', e);
-        }
-      }
-      
       return localReminders;
     } catch (e) {
       console.error('[Reminders] Error:', e);
       return [];
+    }
+  },
+
+  async saveReminder(reminder: any): Promise<any> {
+    try {
+      await dbApi.saveReminder(reminder);
+      return reminder;
+    } catch (e) {
+      console.error('[Reminders] saveReminder error:', e);
+      return reminder;
     }
   },
 

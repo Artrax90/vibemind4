@@ -201,7 +201,8 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
               note_id: rem.note_id,
               remind_at: rem.remind_at,
               repeat_type: rem.repeat_type,
-              message: rem.message
+              message: rem.message,
+              is_sent: rem.is_sent !== undefined ? rem.is_sent : 0
             })
           });
           if (res.ok) {

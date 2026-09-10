@@ -525,6 +525,19 @@ export const api = {
     }
   },
 
+  async saveReminder(reminder: any) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/reminders`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify(reminder)
+      });
+      return await handleResponse(res, { id: null });
+    } catch (e) {
+      return { id: null };
+    }
+  },
+
   async deleteReminder(id: string) {
     try {
       const res = await fetch(`${BASE_URL}/api/reminders/${id}`, {

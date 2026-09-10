@@ -51,22 +51,45 @@ export default function NotificationsPanel({ onNoteClick }: { onNoteClick: (id: 
 
   // Check for due reminders (browser notifications)
   useEffect(() => {
-    const checkBrowserNotifications = () => {
+    const checkBrowserNotifications = async () => {
       const now = new Date();
-      reminders.forEach(r => {
-        if (r.is_sent || notifiedIdsRef.current.has(r.id)) return;
+      let hasUpdates = false;
+
+      for (const r of reminders) {
+        if (r.is_sent || notifiedIdsRef.current.has(r.id)) continue;
         const remindAt = new Date(r.remind_at);
         if (remindAt <= now) {
           notifiedIdsRef.current.add(r.id);
-          // Browser notification
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('🔔 VibeMind', {
-              body: r.message || t('reminder.defaultMessage'),
-              icon: '/icon.svg'
-            });
+          r.is_sent = 1;
+          hasUpdates = true;
+
+          // Only show popup notification if reminder is recent (< 2 hours old)
+          const isStale = (now.getTime() - remindAt.getTime()) > 2 * 60 * 60 * 1000;
+          if (!isStale && 'Notification' in window && Notification.permission === 'granted') {
+            try {
+              new Notification('🔔 VibeMind', {
+                body: r.message || t('reminder.defaultMessage'),
+                icon: '/icon.svg'
+              });
+            } catch (e) {
+              console.error('Notification error:', e);
+            }
+          }
+
+          // Persist is_sent = 1 to database so it never fires again
+          try {
+            if ((api as any).saveReminder) {
+              await (api as any).saveReminder({ ...r, is_sent: 1 });
+            }
+          } catch (e) {
+            console.error('Failed to persist reminder sent state:', e);
           }
         }
-      });
+      }
+
+      if (hasUpdates) {
+        setReminders([...reminders]);
+      }
     };
 
     const interval = setInterval(checkBrowserNotifications, 10000);
