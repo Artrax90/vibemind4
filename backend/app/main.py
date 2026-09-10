@@ -180,13 +180,84 @@ async def startup_event():
 
 # ==================== REMINDER CHECKER ====================
 
+# Track last notification time per user to prevent spam
+_user_last_notified = {}
+_reminder_cleanup_done = False
+
+async def _cleanup_stale_reminders(db):
+    """One-time cleanup: mark all stale reminders as sent, deduplicate."""
+    global _reminder_cleanup_done
+    if _reminder_cleanup_done:
+        return
+    _reminder_cleanup_done = True
+
+    now = datetime.now()
+    cutoff = (now - timedelta(minutes=10)).isoformat()
+
+    try:
+        # Mark ALL old unsent reminders as sent in bulk
+        stale_count = db.query(Reminder).filter(
+            Reminder.is_sent == 0,
+            Reminder.remind_at < cutoff
+        ).update({Reminder.is_sent: 1})
+        db.commit()
+        if stale_count:
+            logger.info(f"Reminder cleanup: marked {stale_count} stale reminders as sent")
+
+        # Delete exact duplicates (same user_id, message, remind_at, is_sent=0)
+        from sqlalchemy import func
+        dupes = db.query(
+            Reminder.user_id, Reminder.message, Reminder.remind_at,
+            func.count(Reminder.id).label('cnt')
+        ).filter(
+            Reminder.is_sent == 0
+        ).group_by(
+            Reminder.user_id, Reminder.message, Reminder.remind_at
+        ).having(func.count(Reminder.id) > 1).all()
+
+        dedup_count = 0
+        for dupe in dupes:
+            # Keep the first one, delete the rest
+            ids = [r.id for r in db.query(Reminder.id).filter(
+                Reminder.user_id == dupe.user_id,
+                Reminder.message == dupe.message,
+                Reminder.remind_at == dupe.remind_at,
+                Reminder.is_sent == 0
+            ).all()]
+            if len(ids) > 1:
+                for rid in ids[1:]:
+                    db.query(Reminder).filter(Reminder.id == rid).delete()
+                    dedup_count += 1
+        if dedup_count:
+            db.commit()
+            logger.info(f"Reminder cleanup: removed {dedup_count} duplicate reminders")
+    except Exception as e:
+        logger.error(f"Reminder cleanup error: {e}")
+        try:
+            db.rollback()
+        except Exception:
+            pass
+
+
 async def check_reminders():
-    """Background task to check and send due reminders via Telegram."""
+    """Background task to check and send due reminders via Telegram.
+    
+    Anti-spam protections:
+    - On first run, marks all stale (>10 min old) unsent reminders as sent
+    - Only sends Telegram for reminders less than 5 minutes old  
+    - Per-user cooldown: max 1 Telegram notification per 5 minutes
+    - Max 5 notifications per cycle
+    - Single Bot instance reused per user (no session leaks)
+    - Deduplicates before creating repeat reminders
+    """
     reminder_failures = {}
     while True:
         try:
             db = SessionLocal()
             try:
+                # One-time cleanup of stale/duplicate reminders
+                await _cleanup_stale_reminders(db)
+
                 now = datetime.now()
                 now_str = now.isoformat()
 
@@ -194,104 +265,31 @@ async def check_reminders():
                 due_reminders = db.query(Reminder).filter(
                     Reminder.is_sent == 0,
                     Reminder.remind_at <= now_str
-                ).all()
+                ).limit(20).all()  # Limit query to avoid processing too many
+
+                sent_count = 0
+                MAX_SENDS_PER_CYCLE = 5
 
                 for reminder in due_reminders:
                     try:
-                        # Get the user's config for Telegram
-                        config = db.query(Config).filter(Config.user_id == reminder.user_id).first()
-                        if not config or not config.tg_token or not config.tg_admin_id:
-                            reminder.is_sent = 1
-                            db.commit()
-                            if reminder.repeat_type and reminder.repeat_type != 'none':
-                                try:
-                                    base_time = datetime.fromisoformat(reminder.remind_at)
-                                except Exception:
-                                    base_time = now
-                                step = None
-                                if reminder.repeat_type == 'daily': step = timedelta(days=1)
-                                elif reminder.repeat_type == 'weekly': step = timedelta(weeks=1)
-                                elif reminder.repeat_type == 'monthly': step = timedelta(days=30)
-                                elif reminder.repeat_type == 'yearly': step = timedelta(days=365)
-                                if step:
-                                    next_time = base_time + step
-                                    while next_time <= now: next_time += step
-
-                                    existing_future = db.query(Reminder).filter(
-                                        Reminder.user_id == reminder.user_id,
-                                        Reminder.message == reminder.message,
-                                        Reminder.remind_at == next_time.isoformat()
-                                    ).first()
-
-                                    if not existing_future:
-                                        new_reminder = Reminder(
-                                            id=str(uuid.uuid4()),
-                                            note_id=reminder.note_id,
-                                            user_id=reminder.user_id,
-                                            remind_at=next_time.isoformat(),
-                                            repeat_type=reminder.repeat_type,
-                                            message=reminder.message,
-                                            is_sent=0,
-                                            created_at=now.isoformat()
-                                        )
-                                        db.add(new_reminder)
-                                        db.commit()
-                            continue
-
-                        # Get the note title
-                        note_title = None
-                        if reminder.note_id:
-                            note = db.query(Note).filter(Note.id == reminder.note_id).first()
-                            note_title = note.title if note else None
-                        if not note_title:
-                            note_title = reminder.message or 'Напоминание'
-
-                        # Check if reminder is stale (>2 hours in the past)
-                        is_stale = False
+                        # Check freshness — skip anything older than 5 minutes
+                        is_stale = True
                         try:
                             remind_dt = datetime.fromisoformat(reminder.remind_at)
-                            if (now - remind_dt) > timedelta(hours=2):
-                                is_stale = True
+                            if (now - remind_dt) <= timedelta(minutes=5):
+                                is_stale = False
                         except Exception:
-                            pass
+                            pass  # Can't parse date — treat as stale
 
-                        # Send via Telegram using aiogram (only if not stale)
-                        if not is_stale:
-                            from aiogram import Bot
-                            from aiogram.client.session.aiohttp import AiohttpSession
-                            from .bot import current_bots
+                        # Get the user's config for Telegram
+                        config = db.query(Config).filter(Config.user_id == reminder.user_id).first()
 
-                            bot = current_bots.get(reminder.user_id)
-                            close_session = False
-                            if not bot:
-                                final_proxy_url = None
-                                if isinstance(config.proxy_url, str) and (config.proxy_url.startswith("http") or config.proxy_url.startswith("socks")):
-                                    final_proxy_url = config.proxy_url
-                                elif isinstance(config.proxy_config, dict) and config.proxy_config.get("host"):
-                                    p = config.proxy_config
-                                    final_proxy_url = f"{p.get('protocol', 'http')}://{p.get('username')}:{p.get('password')}@{p['host']}:{p['port']}" if p.get('username') else f"{p.get('protocol', 'http')}://{p['host']}:{p['port']}"
-                                session = AiohttpSession(proxy=final_proxy_url, timeout=30.0) if final_proxy_url else AiohttpSession(timeout=30.0)
-                                bot = Bot(token=config.tg_token, session=session)
-                                close_session = True
-
-                            try:
-                                admin_id = config.tg_admin_id
-                                if admin_id:
-                                    message = f"🔔 {note_title}"
-                                    if reminder.message:
-                                        message += f"\n💬 {reminder.message}"
-                                    message += f"\n⏰ {reminder.remind_at[:16].replace('T', ' ')}"
-                                    await bot.send_message(chat_id=admin_id, text=message)
-                            finally:
-                                if close_session:
-                                    await bot.session.close()
-
-                        # Mark as sent
+                        # Mark as sent FIRST (before any Telegram attempt — prevents retry spam)
                         reminder.is_sent = 1
-                        reminder_failures.pop(reminder.id, None)
                         db.commit()
+                        reminder_failures.pop(reminder.id, None)
 
-                        # Handle repeat
+                        # Handle repeat scheduling (create next occurrence)
                         if reminder.repeat_type and reminder.repeat_type != 'none':
                             try:
                                 base_time = datetime.fromisoformat(reminder.remind_at)
@@ -313,11 +311,12 @@ async def check_reminders():
                                 while next_time <= now:
                                     next_time += step
 
-                                # Check if already scheduled to prevent duplicate generation
+                                # Check if already scheduled to prevent duplicates
                                 existing_future = db.query(Reminder).filter(
                                     Reminder.user_id == reminder.user_id,
                                     Reminder.message == reminder.message,
-                                    Reminder.remind_at == next_time.isoformat()
+                                    Reminder.remind_at == next_time.isoformat(),
+                                    Reminder.is_sent == 0
                                 ).first()
 
                                 if not existing_future:
@@ -334,25 +333,90 @@ async def check_reminders():
                                     db.add(new_reminder)
                                     db.commit()
 
+                        # Skip Telegram if no config, stale, or at send limit
+                        if not config or not config.tg_token or not config.tg_admin_id:
+                            continue
+                        if is_stale:
+                            continue
+                        if sent_count >= MAX_SENDS_PER_CYCLE:
+                            continue
+
+                        # Per-user cooldown — max 1 Telegram message per 5 minutes
+                        user_id = reminder.user_id
+                        last_sent = _user_last_notified.get(user_id, 0)
+                        if (now.timestamp() - last_sent) < 300:
+                            continue  # Still in cooldown
+
+                        # Send via Telegram using a properly managed session
+                        bot_instance = None
+                        close_session = False
+                        try:
+                            from aiogram import Bot
+                            from aiogram.client.session.aiohttp import AiohttpSession
+                            from .bot import current_bots
+
+                            bot_instance = current_bots.get(user_id)
+                            if not bot_instance:
+                                final_proxy_url = None
+                                if isinstance(config.proxy_url, str) and (config.proxy_url.startswith("http") or config.proxy_url.startswith("socks")):
+                                    final_proxy_url = config.proxy_url
+                                elif isinstance(config.proxy_config, dict) and config.proxy_config.get("host"):
+                                    p = config.proxy_config
+                                    final_proxy_url = f"{p.get('protocol', 'http')}://{p.get('username')}:{p.get('password')}@{p['host']}:{p['port']}" if p.get('username') else f"{p.get('protocol', 'http')}://{p['host']}:{p['port']}"
+                                session = AiohttpSession(proxy=final_proxy_url, timeout=30.0) if final_proxy_url else AiohttpSession(timeout=30.0)
+                                bot_instance = Bot(token=config.tg_token, session=session)
+                                close_session = True
+
+                            # Get note title for the message
+                            note_title = None
+                            if reminder.note_id:
+                                note = db.query(Note).filter(Note.id == reminder.note_id).first()
+                                note_title = note.title if note else None
+                            if not note_title:
+                                note_title = reminder.message or 'Напоминание'
+
+                            admin_id = config.tg_admin_id
+                            if admin_id:
+                                tg_message = f"🔔 {note_title}"
+                                if reminder.message:
+                                    tg_message += f"\n💬 {reminder.message}"
+                                tg_message += f"\n⏰ {reminder.remind_at[:16].replace('T', ' ')}"
+                                await bot_instance.send_message(chat_id=admin_id, text=tg_message)
+
+                            _user_last_notified[user_id] = now.timestamp()
+                            sent_count += 1
+
+                        except Exception as tg_err:
+                            logger.error(f"Telegram send error for reminder {reminder.id}: {tg_err}")
+                        finally:
+                            if close_session and bot_instance:
+                                try:
+                                    await bot_instance.session.close()
+                                except Exception:
+                                    pass
+
                     except Exception as e:
-                        logger.error(f"Failed to send reminder {reminder.id}: {e}")
+                        logger.error(f"Failed to process reminder {reminder.id}: {e}")
                         fails = reminder_failures.get(reminder.id, 0) + 1
                         reminder_failures[reminder.id] = fails
                         if fails >= 3:
                             reminder_failures.pop(reminder.id, None)
-                            reminder.is_sent = 2
                             try:
+                                reminder.is_sent = 2  # Mark as permanently failed
                                 db.commit()
                             except Exception:
-                                db.rollback()
+                                try:
+                                    db.rollback()
+                                except Exception:
+                                    pass
 
             finally:
                 db.close()
         except Exception as e:
             logger.error(f"Reminder checker error: {e}")
 
-        # Check every 30 seconds
-        await asyncio.sleep(30)
+        # Check every 60 seconds (not 30 — reduces load)
+        await asyncio.sleep(60)
 
 @app.on_event("startup")
 async def start_reminder_checker():
