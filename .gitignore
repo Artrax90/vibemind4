@@ -12,4 +12,12 @@ vosk-model/
 build_error.txt
 build_output.txt
 *.sqlite
+*.sqlite3
+*.db
 .vscode/
+__pycache__/
+*.py[cod]
+*$py.class
+storage/
+.agents/
+

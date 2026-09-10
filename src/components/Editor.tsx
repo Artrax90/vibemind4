@@ -132,7 +132,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
     }, 1000);
 
     return () => clearTimeout(timer);
-  }, [content, title, note.id, note.content, note.title, onUpdate]);
+  }, [content, title, note?.id, note?.content, note?.title, onUpdate]);
 
   const handleSummarize = async () => {
     if (!content.trim()) return;
@@ -776,9 +776,9 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
         slug={publishSlug}
         title={note.title}
         isPublished={!!(note.content || '').includes('published:')}
-        onPublish={async (expiresHours: number) => {
+        onPublish={async (expiresMinutes: number) => {
           const { api } = await import('../api/client');
-          const result = await api.publishNote(note.id, expiresHours);
+          const result = await api.publishNote(note.id, expiresMinutes);
           if (result.slug) {
             setPublishSlug(result.slug);
           }

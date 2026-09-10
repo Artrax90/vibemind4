@@ -13,7 +13,7 @@ import base64
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from jose import jwt
-from aiogram import Bot, Dispatcher, types, F
+from aiogram import Bot, Dispatcher, Router, types, F
 from aiogram.filters import Command
 from aiogram.types import FSInputFile
 from aiogram.client.session.aiohttp import AiohttpSession
@@ -24,7 +24,6 @@ from wyoming.audio import AudioChunk, AudioStart, AudioStop
 from wyoming.event import async_read_event, async_write_event
 from openai import AsyncOpenAI
 from sqlalchemy.orm import Session
-from ..database import SessionLocal
 from .models import Config, User
 from .utils.numbers import words_to_digits
 
@@ -33,8 +32,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # JWT Settings (must match main.py)
-SECRET_KEY = os.getenv("ENCRYPTION_KEY", "fallback-zero-config-secret-key-change-in-production")
+SECRET_KEY = os.getenv("ENCRYPTION_KEY", "fallback-secret-key")
 ALGORITHM = "HS256"
+
+# Storage paths
+BASE_DIR = os.getcwd()
+STORAGE_DIR = os.getenv("STORAGE_DIR", os.path.join(BASE_DIR, "storage"))
+UPLOAD_DIR = os.path.join(STORAGE_DIR, "uploads")
+TEMP_DIR = os.path.join(STORAGE_DIR, "temp")
+API_BASE_URL = os.getenv("API_BASE_URL", f"http://127.0.0.1:{os.getenv('PORT', '3344')}").rstrip('/')
 
 SYSTEM_PROMPT = """Ты — интеллектуальный парсер голосовых команд для заметок.
 Возвращаешь только JSON.
@@ -204,7 +210,9 @@ token_to_user: Dict[str, int] = {} # token -> user_id
 user_usernames: Dict[int, str] = {}
 bot_locks: Dict[int, asyncio.Lock] = {} # Lock per user
 awaiting_passwords: Dict[str, Dict[str, Any]] = {} # chat_id -> {user_id: int, note_id: str}
+router = Router()
 dp = Dispatcher()
+dp.include_router(router)
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
     if user_id not in bot_locks:
@@ -255,7 +263,10 @@ async def parse_commands_llm(user_id: int, text: str, notes: list[dict] = None) 
                     async with session.post(url, json=payload, timeout=30) as resp:
                         if resp.status == 200:
                             data = await resp.json()
-                            return data['candidates'][0]['content']['parts'][0]['text']
+                            candidates = data.get('candidates', [])
+                            if candidates and 'content' in candidates[0] and 'parts' in candidates[0]['content'] and candidates[0]['content']['parts']:
+                                return candidates[0]['content']['parts'][0].get('text', '')
+                            raise Exception("Gemini returned empty candidate response")
                         else:
                             resp_text = await resp.text()
                             raise Exception(f"Gemini error: {resp_text}")
@@ -306,12 +317,18 @@ async def parse_commands_llm(user_id: int, text: str, notes: list[dict] = None) 
             else:
                 raise e
         
-        if content.startswith("```json"):
-            content = content[7:-3].strip()
-        elif content.startswith("```"):
-            content = content[3:-3].strip()
+        # Robustly extract JSON block
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', content)
+        if json_match:
+            raw_json = json_match.group(1).strip()
+        else:
+            bracket_match = re.search(r'(\[[\s\S]*\]|\{[\s\S]*\})', content)
+            if bracket_match:
+                raw_json = bracket_match.group(1).strip()
+            else:
+                raw_json = content.strip()
             
-        parsed = json.loads(content)
+        parsed = json.loads(raw_json)
         if isinstance(parsed, dict):
             return [parsed]
         elif isinstance(parsed, list):
@@ -476,7 +493,7 @@ async def speech_to_text(audio_path: str) -> str:
 # --- API Functions ---
 
 async def save_note_to_api(user_id: int, title: str, content: str, note_id: str = None) -> Dict[str, Any]:
-    url = "http://localhost:3344/api/notes"
+    url = f"{API_BASE_URL}/api/notes"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload = {"id": note_id or str(uuid.uuid4()), "title": title, "content": content}
@@ -491,7 +508,7 @@ async def save_note_to_api(user_id: int, title: str, content: str, note_id: str 
         return {"status": "error", "message": str(e)}
 
 async def get_note_api(user_id: int, note_id: str) -> Dict[str, Any]:
-    url = f"http://localhost:3344/api/notes/{note_id}"
+    url = f"{API_BASE_URL}/api/notes/{note_id}"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -511,7 +528,7 @@ async def patch_note_api(user_id: int, note_id: str, content: str) -> Dict[str, 
         old_content = current["data"].get("content", "")
         new_content = f"{old_content}\n\n{content}" if old_content else content
         
-        url = f"http://localhost:3344/api/notes/{note_id}"
+        url = f"{API_BASE_URL}/api/notes/{note_id}"
         token = await get_user_token(user_id)
         headers = {"Authorization": f"Bearer {token}"}
         payload = {"content": new_content}
@@ -526,7 +543,7 @@ async def patch_note_api(user_id: int, note_id: str, content: str) -> Dict[str, 
     return current
 
 async def get_all_notes_api(user_id: int) -> list[dict]:
-    url = "http://localhost:3344/api/notes"
+    url = f"{API_BASE_URL}/api/notes"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -540,7 +557,7 @@ async def get_all_notes_api(user_id: int) -> list[dict]:
 async def search_api(user_id: int, query: str) -> Dict[str, Any]:
     import urllib.parse
     encoded_query = urllib.parse.quote(query)
-    url = f"http://localhost:3344/api/notes/search?query={encoded_query}"
+    url = f"{API_BASE_URL}/api/notes/search?query={encoded_query}"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -556,7 +573,7 @@ async def search_api(user_id: int, query: str) -> Dict[str, Any]:
 async def semantic_search_api(user_id: int, query: str) -> Dict[str, Any]:
     import urllib.parse
     encoded_query = urllib.parse.quote(query)
-    url = f"http://localhost:3344/api/notes/semantic-search?query={encoded_query}"
+    url = f"{API_BASE_URL}/api/notes/semantic-search?query={encoded_query}"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -606,7 +623,7 @@ async def send_long_message(message: types.Message, text: str, parse_mode: str =
 
 # --- Bot Handlers ---
 
-@dp.callback_query(F.data.startswith("open_note_"))
+@router.callback_query(F.data.startswith("open_note_"))
 async def handle_open_note(callback: types.CallbackQuery, user_id: int):
     note_id = callback.data.replace("open_note_", "")
     await callback.answer()
@@ -670,25 +687,25 @@ async def handle_open_note(callback: types.CallbackQuery, user_id: int):
                 
         image_matches = re.findall(r'!\[.*?\]\((/api/uploads/.*?)\)', note.get("content", ""))
         for img_path in image_matches:
-            local_path = os.path.join('/app/storage/uploads', os.path.basename(img_path))
+            local_path = os.path.join(UPLOAD_DIR, os.path.basename(img_path))
             if os.path.exists(local_path):
                 try: await callback.message.answer_photo(FSInputFile(local_path))
                 except Exception as e: logger.error(f"Error sending photo: {e}")
     else:
         await callback.message.answer("❌ Не удалось загрузить содержимое заметки.")
 
-@dp.message(Command("start"))
+@router.message(Command("start"))
 async def handle_start(message: types.Message):
     await message.answer("Привет! Я твой личный помощник VibeMind. Присылай мне любые мысли, ссылки или картинки, и я сохраню их в твои заметки.")
 
-@dp.message(F.voice)
+@router.message(F.voice)
 async def handle_voice(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     await message.answer("🎙 Голосовое сообщение получено. Запускаю транскрибацию...")
     try:
         file = await message.bot.get_file(message.voice.file_id)
-        ogg_path = os.path.join('/app/storage/temp', f"{uuid.uuid4()}.ogg")
-        os.makedirs('/app/storage/temp', exist_ok=True)
+        ogg_path = os.path.join(TEMP_DIR, f"{uuid.uuid4()}.ogg")
+        os.makedirs(TEMP_DIR, exist_ok=True)
         await message.bot.download_file(file.file_path, ogg_path)
         text = await speech_to_text(ogg_path)
         if not text:
@@ -704,14 +721,14 @@ async def handle_voice(message: types.Message, user_id: int, admin_id: str = Non
     except Exception as e:
         await message.answer(f"❌ Ошибка при обработке голоса: {str(e)}")
 
-@dp.message(F.photo)
+@router.message(F.photo)
 async def handle_photo(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     try:
         caption = message.caption or ""
         filename = f"{uuid.uuid4()}.jpg"
-        filepath = os.path.join('/app/storage/uploads', filename)
-        os.makedirs('/app/storage/uploads', exist_ok=True)
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
         file = await message.bot.get_file(message.photo[-1].file_id)
         await message.bot.download_file(file.file_path, filepath)
         
@@ -736,20 +753,24 @@ async def handle_photo(message: types.Message, user_id: int, admin_id: str = Non
                             target_id = res["data"][0].get('id')
                     
                     if target_id:
-                        res = await patch_note_api(user_id, target_id, image_markdown)
+                        append_text = f"{cmd['append']}\n\n{image_markdown}" if cmd.get("append") else image_markdown
+                        res = await patch_note_api(user_id, target_id, append_text)
                         if res.get("status") == "success":
                             await message.answer(f"📸 Изображение добавлено в заметку «{res['data'].get('title')}»!")
                             return
                 
                 elif intent == "CREATE":
                     title = cmd.get("title", "Без названия")
-                    result = await save_note_to_api(user_id, title, image_markdown)
+                    note_content = f"{cmd['content']}\n\n{image_markdown}" if cmd.get("content") else (f"{caption}\n\n{image_markdown}" if caption else image_markdown)
+                    result = await save_note_to_api(user_id, title, note_content)
                     if result.get("status") == "success":
                         await message.answer(f"📸 Создал новую заметку «{title}» с изображением!")
                         return
 
         # Fallback if no caption or parsing failed to find a target
-        result = await save_note_to_api(user_id, f"Photo from Telegram {datetime.now().strftime('%Y-%m-%d %H:%M')}", image_markdown)
+        note_content = f"{caption}\n\n{image_markdown}" if caption else image_markdown
+        title = caption[:50].strip() if caption else f"Photo from Telegram {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        result = await save_note_to_api(user_id, title, note_content)
         if result.get("status") == "success": 
             await message.answer("📸 Изображение сохранено в новую заметку!")
         else: 
@@ -757,6 +778,68 @@ async def handle_photo(message: types.Message, user_id: int, admin_id: str = Non
             
     except Exception as e: 
         logger.error(f"Error in handle_photo: {e}")
+        await message.answer(f"❌ Ошибка: {str(e)}")
+
+@router.message(F.document)
+async def handle_document(message: types.Message, user_id: int, admin_id: str = None):
+    if admin_id and str(message.from_user.id) != str(admin_id): return
+    doc = message.document
+    if not doc: return
+    try:
+        mime = doc.mime_type or ""
+        caption = message.caption or ""
+        ext = os.path.splitext(doc.file_name or "")[1] or (".jpg" if "image" in mime else ".bin")
+        safe_ext = "".join(c for c in ext if c.isalnum() or c == '.')[:10]
+        filename = f"{uuid.uuid4()}{safe_ext}"
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        os.makedirs(UPLOAD_DIR, exist_ok=True)
+        
+        file = await message.bot.get_file(doc.file_id)
+        await message.bot.download_file(file.file_path, filepath)
+        
+        if mime.startswith("image/"):
+            file_markdown = f"![image](/api/uploads/{filename})"
+        else:
+            file_markdown = f"[{doc.file_name or 'Файл'}](/api/uploads/{filename})"
+            
+        if caption:
+            parsed = await parse_user_intent_with_llm(user_id, caption)
+            if parsed and parsed.get("status") == "success" and parsed.get("data"):
+                data = parsed["data"]
+                cmd = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else None)
+                if cmd:
+                    intent = cmd.get("type")
+                    if intent == "UPDATE":
+                        target_id = cmd.get("note_id")
+                        if not target_id and cmd.get("search_query"):
+                            res = await search_api(user_id, cmd.get("search_query"))
+                            if res.get("status") == "success" and res.get("data"):
+                                target_id = res["data"][0].get('id')
+                        
+                        if target_id:
+                            append_text = f"{cmd['append']}\n\n{file_markdown}" if cmd.get("append") else file_markdown
+                            res = await patch_note_api(user_id, target_id, append_text)
+                            if res.get("status") == "success":
+                                await message.answer(f"📎 Файл добавлен в заметку «{res['data'].get('title')}»!")
+                                return
+                    
+                    elif intent == "CREATE":
+                        title = cmd.get("title", doc.file_name or "Без названия")
+                        note_content = f"{cmd['content']}\n\n{file_markdown}" if cmd.get("content") else (f"{caption}\n\n{file_markdown}" if caption else file_markdown)
+                        result = await save_note_to_api(user_id, title, note_content)
+                        if result.get("status") == "success":
+                            await message.answer(f"📎 Создал новую заметку «{title}» с файлом!")
+                            return
+
+        note_content = f"{caption}\n\n{file_markdown}" if caption else file_markdown
+        title = caption[:50].strip() if caption else f"Файл: {doc.file_name or datetime.now().strftime('%Y-%m-%d %H:%M')}"
+        res = await save_note_to_api(user_id, title, note_content)
+        if res.get("status") == "success":
+            await message.answer(f"📎 Файл «{doc.file_name or 'документ'}» сохранен в заметки!")
+        else:
+            await message.answer(f"❌ Ошибка сохранения: {res.get('message')}")
+    except Exception as e:
+        logger.error(f"Error in handle_document: {e}")
         await message.answer(f"❌ Ошибка: {str(e)}")
 
 # ==================== REMINDER PARSER ====================
@@ -878,40 +961,29 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
             t = t[:time_match.start()] + t[time_match.end():]
             t = t.strip()
         else:
-            # "в 4digit" — words_to_digits merged hour+minutes (e.g. "в 34" = 3:04, "в 1628" = 16:28)
-            time_match = re.search(r'\bв\s+(\d{2,4})\b', t)
+            # "в 3-4 digits" — words_to_digits merged hour+minutes (e.g. "в 328" = 3:28, "в 1628" = 16:28)
+            time_match = re.search(r'\bв\s+(\d{3,4})\b', t)
+            matched_time = False
             if time_match:
                 num = int(time_match.group(1))
-                if num <= 23:
-                    # Just an hour: "в 4" → 4:00
-                    time_str = f"{num:02d}:00"
-                elif num <= 2359:
-                    # Two-digit hour + two-digit minute: "в 1628" → 16:28
-                    h = num // 100
-                    m_val = num % 100
-                    if h <= 23 and m_val <= 59:
-                        time_str = f"{h:02d}:{m_val:02d}"
-                    else:
-                        time_str = f"{min(h, 23):02d}:{min(m_val, 59):02d}"
-                else:
-                    # Three digits: "в 328" → 3:28 (first digit = hour, rest = minutes)
-                    h = num // 100
-                    m_val = num % 100
-                    if h <= 23 and m_val <= 59:
-                        time_str = f"{h:02d}:{m_val:02d}"
-                    else:
-                        time_str = "09:00"
-                t = t[:time_match.start()] + t[time_match.end():]
-                t = t.strip()
-            else:
+                h = num // 100
+                m_val = num % 100
+                if h <= 23 and m_val <= 59:
+                    time_str = f"{h:02d}:{m_val:02d}"
+                    t = t[:time_match.start()] + t[time_match.end():]
+                    t = t.strip()
+                    matched_time = True
+            if not matched_time:
                 # "в HH" — just hour, no minutes (e.g. "в 4", "в 16")
                 time_match = re.search(r'\bв\s+(\d{1,2})\b', t)
                 if time_match:
-                    h = max(0, min(23, int(time_match.group(1))))
-                    time_str = f"{h:02d}:00"
-                    t = t[:time_match.start()] + t[time_match.end():]
-                    t = t.strip()
-                else:
+                    h = int(time_match.group(1))
+                    if h <= 23:
+                        time_str = f"{h:02d}:00"
+                        t = t[:time_match.start()] + t[time_match.end():]
+                        t = t.strip()
+                        matched_time = True
+                if not matched_time:
                     # "вечером" → 18:00
                     if re.search(r'\bвечером\b', t):
                         time_str = "18:00"
@@ -942,7 +1014,7 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
 
 async def create_reminder_api(user_id: int, data: Dict[str, str]) -> Dict[str, Any]:
     """Create a reminder via HTTP API (without creating a note)."""
-    url = "http://localhost:3344/api/reminders"
+    url = f"{API_BASE_URL}/api/reminders"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
     payload = {
@@ -962,7 +1034,7 @@ async def create_reminder_api(user_id: int, data: Dict[str, str]) -> Dict[str, A
 
 async def get_reminders_api(user_id: int) -> list:
     """Get all reminders via HTTP API."""
-    url = "http://localhost:3344/api/reminders"
+    url = f"{API_BASE_URL}/api/reminders"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -975,7 +1047,7 @@ async def get_reminders_api(user_id: int) -> list:
         return []
 
 async def delete_reminder_api(user_id: int, reminder_id: str) -> bool:
-    url = f"http://localhost:3344/api/reminders/{reminder_id}"
+    url = f"{API_BASE_URL}/api/reminders/{reminder_id}"
     token = await get_user_token(user_id)
     headers = {"Authorization": f"Bearer {token}"}
     try:
@@ -985,7 +1057,7 @@ async def delete_reminder_api(user_id: int, reminder_id: str) -> bool:
     except:
         return False
 
-@dp.message(Command("calendar"))
+@router.message(Command("calendar"))
 async def handle_calendar(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     args = message.text.split(maxsplit=1)
@@ -1021,21 +1093,25 @@ async def _show_calendar(message: types.Message, user_id: int, sub: str = "се�
     filtered = []
     for r in reminders:
         try:
-            rt = datetime.fromisoformat(r["remind_at"])
+            remind_str = r.get("remind_at", "")
+            if remind_str.endswith('Z'):
+                remind_str = remind_str[:-1] + '+00:00'
+            rt = datetime.fromisoformat(remind_str)
+            if rt.tzinfo is not None:
+                rt = rt.astimezone().replace(tzinfo=None)
             if start <= rt < end and not r.get("is_sent"):
-                filtered.append(r)
-        except:
+                filtered.append((rt, r))
+        except Exception:
             pass
 
-    filtered.sort(key=lambda x: x["remind_at"])
+    filtered.sort(key=lambda x: x[0])
 
     if not filtered:
         await send_long_message(message, f"📅 <b>{label}</b>\n\nПусто — нет напоминаний.")
         return
 
     resp = f"📅 <b>{label}</b>\n\n"
-    for r in filtered:
-        rt = datetime.fromisoformat(r["remind_at"])
+    for rt, r in filtered:
         time_display = rt.strftime("%H:%M")
         msg = r.get("message") or "Напоминание"
         resp += f"🕐 <b>{time_display}</b> — {html.escape(msg)}\n"
@@ -1043,7 +1119,7 @@ async def _show_calendar(message: types.Message, user_id: int, sub: str = "се�
     await send_long_message(message, resp)
 
 
-@dp.message(F.text)
+@router.message(F.text)
 async def handle_text(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     if message.text.startswith('/'): return
@@ -1087,7 +1163,7 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
         # For now, we can try to fetch the note with a password param if we implemented it, 
         # but we decided on a verify endpoint.
         
-        url = f"http://localhost:3344/api/folders/verify-by-note/{note_id}"
+        url = f"{API_BASE_URL}/api/folders/verify-by-note/{note_id}"
         token = await get_user_token(user_id)
         headers = {"Authorization": f"Bearer {token}"}
         try:
@@ -1279,7 +1355,9 @@ async def start_bot(user_id: int, username: str, token: str, proxy_url: str = No
                 logger.info(f"Запуск бота для {username}. Прокси: {final_proxy_url or 'Direct'}")
                 # Удаляем вебхук перед запуском поллинга, чтобы избежать ConflictError
                 await bot.delete_webhook(drop_pending_updates=True)
-                await dp.start_polling(bot, user_id=user_id, admin_id=admin_id, handle_signals=False)
+                bot_dp = Dispatcher()
+                bot_dp.include_router(router)
+                await bot_dp.start_polling(bot, user_id=user_id, admin_id=admin_id, handle_signals=False)
         finally:
             await session.close()
     except Exception as e:

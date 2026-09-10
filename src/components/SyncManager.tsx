@@ -58,15 +58,17 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
       log('Authentication successful. Starting background sync...');
       
       // 1. Get local data
-      const [localNotes, localFolders, deletedItems] = await Promise.all([
+      const [localNotes, localFolders, localReminders, deletedItems] = await Promise.all([
         dbApi.getNotes(),
         dbApi.getFolders(),
+        dbApi.getReminders ? dbApi.getReminders() : Promise.resolve([]),
         dbApi.getDeletedItems ? dbApi.getDeletedItems() : Promise.resolve([])
       ]);
       
       const dirtyNotes = localNotes.filter((n: any) => n.is_dirty === 1);
       const dirtyFolders = localFolders.filter((f: any) => f.is_dirty === 1);
-      log(`Found ${dirtyNotes.length} notes, ${dirtyFolders.length} folders, and ${deletedItems.length} deleted items to push.`);
+      const dirtyReminders = (localReminders || []).filter((r: any) => r.is_dirty === 1);
+      log(`Found ${dirtyNotes.length} notes, ${dirtyFolders.length} folders, ${dirtyReminders.length} reminders, and ${deletedItems.length} deleted items to push.`);
 
       // 2. Pull updates from server
       log('Fetching remote data...');
@@ -81,9 +83,9 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
       
       const remoteNotes = await notesRes.json();
       const remoteFolders = await foldersRes.json();
-      const remoteReminders = remindersRes.ok ? await remindersRes.json() : [];
+      let remoteReminders = remindersRes.ok ? await remindersRes.json() : [];
 
-      const totalToSync = deletedItems.length + dirtyNotes.length + dirtyFolders.length + remoteNotes.length + remoteFolders.length;
+      const totalToSync = deletedItems.length + dirtyNotes.length + dirtyFolders.length + dirtyReminders.length + remoteNotes.length + remoteFolders.length;
       let currentSynced = 0;
       setProgress(totalToSync, 0);
 
@@ -94,7 +96,7 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
       // 2.5 Process Deletions
       for (const delItem of deletedItems) {
         try {
-          const endpoint = delItem.type === 'folder' ? 'folders' : 'notes';
+          const endpoint = delItem.type === 'folder' ? 'folders' : delItem.type === 'reminder' ? 'reminders' : 'notes';
           const res = await fetch(`${baseUrl}/api/${endpoint}/${delItem.id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${access_token}` }
@@ -107,6 +109,8 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
               finalRemoteNotes = finalRemoteNotes.filter((n: any) => n.id !== delItem.id);
             } else if (delItem.type === 'folder') {
               finalRemoteFolders = finalRemoteFolders.filter((f: any) => f.id !== delItem.id);
+            } else if (delItem.type === 'reminder') {
+              remoteReminders = (remoteReminders || []).filter((r: any) => r.id !== delItem.id);
             }
           } else {
             log(`Failed to push deletion for ${delItem.type} ${delItem.id}: ${res.status}`, true);
@@ -182,6 +186,38 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
         }
       }
 
+      const pushedReminderIds = new Set<string>();
+      // 4.5 Push dirty reminders
+      for (const rem of dirtyReminders) {
+        try {
+          const res = await fetch(`${baseUrl}/api/reminders`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${access_token}`
+            },
+            body: JSON.stringify({
+              id: rem.id,
+              note_id: rem.note_id,
+              remind_at: rem.remind_at,
+              repeat_type: rem.repeat_type,
+              message: rem.message
+            })
+          });
+          if (res.ok) {
+            if (dbApi.saveReminder) {
+              await dbApi.saveReminder({ ...rem, is_dirty: 0 });
+            }
+            pushedReminderIds.add(rem.id);
+            log(`Pushed reminder: ${rem.message || rem.id}`);
+          }
+        } catch (e) {
+          log(`Failed to push reminder ${rem.id}: ${e}`, true);
+        }
+        currentSynced++;
+        setProgress(totalToSync, currentSynced);
+      }
+
       // 5. Pull updates from server
       let hasChanges = false;
 
@@ -239,11 +275,30 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
         setProgress(totalToSync, currentSynced);
       }
 
+      // Pull reminders
+      if (Array.isArray(remoteReminders) && dbApi.saveReminder) {
+        for (const remoteRem of remoteReminders) {
+          const localRem = (localReminders || []).find((r: any) => r.id === remoteRem.id);
+          if (!localRem || localRem.is_dirty === 0) {
+            await dbApi.saveReminder({
+              id: remoteRem.id,
+              note_id: remoteRem.note_id,
+              remind_at: remoteRem.remind_at,
+              repeat_type: remoteRem.repeat_type,
+              message: remoteRem.message,
+              is_sent: remoteRem.is_sent,
+              is_dirty: 0
+            });
+          }
+        }
+      }
+
       // 6. Prune local data that no longer exists on server
       // Refetch local state to get accurate is_dirty status after pushes
-      const [currentLocalNotes, currentLocalFolders] = await Promise.all([
+      const [currentLocalNotes, currentLocalFolders, currentLocalReminders] = await Promise.all([
         dbApi.getNotes(),
-        dbApi.getFolders()
+        dbApi.getFolders(),
+        dbApi.getReminders ? dbApi.getReminders() : Promise.resolve([])
       ]);
 
       // Prune folders
@@ -252,6 +307,9 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
         const remoteFolder = finalRemoteFolders.find((rf: any) => rf.id === localFolder.id);
         if (!remoteFolder && localFolder.is_dirty === 0) {
           await dbApi.deleteFolder(localFolder.id);
+          if (dbApi.removeDeletedItem) {
+            await dbApi.removeDeletedItem(localFolder.id);
+          }
           log(`Pruned local folder: ${localFolder.name}`);
           hasChanges = true;
         }
@@ -263,8 +321,27 @@ export default function SyncManager({ onSyncComplete }: SyncManagerProps) {
         const remoteNote = finalRemoteNotes.find((rn: any) => rn.id === localNote.id);
         if (!remoteNote && localNote.is_dirty === 0) {
           await dbApi.deleteNote(localNote.id);
+          if (dbApi.removeDeletedItem) {
+            await dbApi.removeDeletedItem(localNote.id);
+          }
           log(`Pruned local note: ${localNote.title}`);
           hasChanges = true;
+        }
+      }
+
+      // Prune reminders
+      if (Array.isArray(remoteReminders) && dbApi.deleteReminder) {
+        for (const localRem of currentLocalReminders) {
+          if (pushedReminderIds.has(localRem.id)) continue;
+          const remoteRem = remoteReminders.find((rr: any) => rr.id === localRem.id);
+          if (!remoteRem && localRem.is_dirty === 0) {
+            await dbApi.deleteReminder(localRem.id);
+            if (dbApi.removeDeletedItem) {
+              await dbApi.removeDeletedItem(localRem.id);
+            }
+            log(`Pruned local reminder: ${localRem.message || localRem.id}`);
+            hasChanges = true;
+          }
         }
       }
 

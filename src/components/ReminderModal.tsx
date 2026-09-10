@@ -24,11 +24,18 @@ const REPEAT_OPTIONS = [
   { value: 'yearly', label: 'Каждый год' },
 ];
 
+const toLocalDateString = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 export default function ReminderModal({ isOpen, onClose, onConfirm, initialDate, initialTime, initialRepeat, initialMessage, initialNoteId, notes, isEditing }: ReminderModalProps) {
   const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const today = new Date();
-  const [date, setDate] = useState(initialDate || today.toISOString().split('T')[0]);
+  const [date, setDate] = useState(initialDate || toLocalDateString(today));
   const [time, setTime] = useState('09:00');
   const [repeat, setRepeat] = useState('none');
   const [message, setMessage] = useState('');
@@ -38,7 +45,7 @@ export default function ReminderModal({ isOpen, onClose, onConfirm, initialDate,
 
   useEffect(() => {
     if (isOpen) {
-      setDate(initialDate || today.toISOString().split('T')[0]);
+      setDate(initialDate || toLocalDateString(new Date()));
       setTime(initialTime || '09:00');
       setRepeat(initialRepeat || 'none');
       setMessage(initialMessage || '');
@@ -67,7 +74,7 @@ export default function ReminderModal({ isOpen, onClose, onConfirm, initialDate,
   ];
 
   const handlePreset = (presetDate: Date) => {
-    setDate(presetDate.toISOString().split('T')[0]);
+    setDate(toLocalDateString(presetDate));
     setTime(`${String(presetDate.getHours()).padStart(2, '0')}:${String(presetDate.getMinutes()).padStart(2, '0')}`);
   };
 
@@ -84,6 +91,16 @@ export default function ReminderModal({ isOpen, onClose, onConfirm, initialDate,
   };
 
   const formatDate = (dateStr: string) => {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      const y = Number(parts[0]);
+      const m = Number(parts[1]);
+      const d = Number(parts[2]);
+      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+        const dateObj = new Date(y, m - 1, d);
+        return dateObj.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
+      }
+    }
     const d = new Date(dateStr);
     return d.toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long' });
   };

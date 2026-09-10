@@ -39,12 +39,13 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
     api.getNormalizedUrl().then(url => setServerUrl(url || ''));
   }, []);
 
+  const lastSavedRef = useRef({ content: note.content, title: note.title });
+
   useEffect(() => {
     setContent(note.content);
     setTitle(note.title);
+    lastSavedRef.current = { content: note.content, title: note.title };
   }, [note.id, note.content, note.title]);
-
-  const lastSavedRef = useRef({ content: note.content, title: note.title });
 
   useEffect(() => {
     if (isReadOnly) return;

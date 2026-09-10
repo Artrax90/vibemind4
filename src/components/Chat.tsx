@@ -29,8 +29,18 @@ export default function Chat({ notes, folders, unlockedFolders, activeNoteId, on
   const isNoteLocked = (noteId: string) => {
     const note = notes.find(n => n.id === noteId);
     if (!note || !note.folderId) return false;
-    const folder = folders.find(f => f.id === note.folderId);
-    return folder?.isProtected && !unlockedFolders.has(folder.id);
+    let currentFolderId: string | undefined = note.folderId;
+    const visited = new Set<string>();
+    while (currentFolderId && !visited.has(currentFolderId)) {
+      visited.add(currentFolderId);
+      const folder = folders.find(f => f.id === currentFolderId);
+      if (!folder) break;
+      if (folder.isProtected && !unlockedFolders.has(folder.id)) {
+        return true;
+      }
+      currentFolderId = folder.parentId;
+    }
+    return false;
   };
 
   // Auto-scroll to bottom when messages change

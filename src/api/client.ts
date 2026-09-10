@@ -583,6 +583,18 @@ export const api = {
     }
   },
 
+  async deleteCalendarEvent(eventId: string) {
+    try {
+      const res = await fetch(`${BASE_URL}/api/calendar/events/${eventId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders()
+      });
+      return await handleResponse(res, { status: 'deleted' });
+    } catch (e) {
+      return { status: 'error' };
+    }
+  },
+
   async disconnectCalendar() {
     try {
       const res = await fetch(`${BASE_URL}/api/calendar/disconnect`, {
@@ -598,10 +610,11 @@ export const api = {
   // Publishing
   async publishNote(noteId: string, expiresMinutes: number = 0) {
     try {
-      const params = expiresMinutes > 0 ? `?expires_hours=${expiresMinutes}` : '';
+      const params = expiresMinutes > 0 ? `?expires_minutes=${expiresMinutes}` : '';
       const res = await fetch(`${BASE_URL}/api/notes/${noteId}/publish${params}`, {
         method: 'POST',
-        headers: getAuthHeaders()
+        headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
+        body: JSON.stringify({ expires_minutes: expiresMinutes })
       });
       return await handleResponse(res, { slug: null });
     } catch (e) {

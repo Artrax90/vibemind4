@@ -24,12 +24,13 @@ from .bot import restart_bot, test_bot_connection
 
 # Logging setup
 BASE_DIR = os.getcwd()
-STORAGE_DIR = os.path.join(BASE_DIR, "storage")
+STORAGE_DIR = os.getenv("STORAGE_DIR", os.path.join(BASE_DIR, "storage"))
 LOG_DIR = os.path.join(STORAGE_DIR, "logs")
 LOG_FILE = os.path.join(LOG_DIR, "vibemind.log")
+UPLOAD_DIR = os.path.join(STORAGE_DIR, "uploads")
 
 os.makedirs(LOG_DIR, exist_ok=True)
-os.makedirs(os.path.join(STORAGE_DIR, 'uploads'), exist_ok=True)
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 root_logger = logging.getLogger()
 root_logger.setLevel(logging.INFO)
@@ -46,17 +47,22 @@ logger = logging.getLogger(__name__)
 SECRET_KEY = os.getenv("ENCRYPTION_KEY", "fallback-secret-key")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24
+API_BASE_URL = os.getenv("API_BASE_URL", f"http://localhost:{os.getenv('PORT', '3344')}").rstrip('/')
 
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:////app/storage/vibemind.db") 
-SQL_ARGS = {"check_same_thread": False} if "sqlite" in SQLALCHEMY_DATABASE_URL else {}
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL, 
-    connect_args=SQL_ARGS,
-    pool_size=20,
-    max_overflow=10
-)
+if "sqlite" in SQLALCHEMY_DATABASE_URL:
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL, 
+        connect_args={"check_same_thread": False}
+    )
+else:
+    engine = create_engine(
+        SQLALCHEMY_DATABASE_URL, 
+        pool_size=20,
+        max_overflow=10
+    )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 # Migration and Table Creation
@@ -160,7 +166,7 @@ async def startup_event():
                 
                 seen_tokens.add(c.tg_token)
                 user = db.query(User).filter(User.id == c.user_id).first()
-                if user:
+                if user and user.is_active:
                     logger.info(f"Starting bot for user {user.username} (ID: {c.user_id})")
                     await restart_bot(c.user_id, user.username, c.tg_token, c.proxy_url, c.proxy_config, c.tg_admin_id)
         except Exception as e:
@@ -176,6 +182,7 @@ async def startup_event():
 
 async def check_reminders():
     """Background task to check and send due reminders via Telegram."""
+    reminder_failures = {}
     while True:
         try:
             db = SessionLocal()
@@ -193,7 +200,34 @@ async def check_reminders():
                     try:
                         # Get the user's config for Telegram
                         config = db.query(Config).filter(Config.user_id == reminder.user_id).first()
-                        if not config or not config.tg_token:
+                        if not config or not config.tg_token or not config.tg_admin_id:
+                            reminder.is_sent = 1
+                            db.commit()
+                            if reminder.repeat_type and reminder.repeat_type != 'none':
+                                try:
+                                    base_time = datetime.fromisoformat(reminder.remind_at)
+                                except Exception:
+                                    base_time = now
+                                step = None
+                                if reminder.repeat_type == 'daily': step = timedelta(days=1)
+                                elif reminder.repeat_type == 'weekly': step = timedelta(weeks=1)
+                                elif reminder.repeat_type == 'monthly': step = timedelta(days=30)
+                                elif reminder.repeat_type == 'yearly': step = timedelta(days=365)
+                                if step:
+                                    next_time = base_time + step
+                                    while next_time <= now: next_time += step
+                                    new_reminder = Reminder(
+                                        id=str(uuid.uuid4()),
+                                        note_id=reminder.note_id,
+                                        user_id=reminder.user_id,
+                                        remind_at=next_time.isoformat(),
+                                        repeat_type=reminder.repeat_type,
+                                        message=reminder.message,
+                                        is_sent=0,
+                                        created_at=now.isoformat()
+                                    )
+                                    db.add(new_reminder)
+                                    db.commit()
                             continue
 
                         # Get the note title
@@ -206,46 +240,85 @@ async def check_reminders():
 
                         # Send via Telegram using aiogram
                         from aiogram import Bot
-                        bot = Bot(token=config.tg_token)
-                        admin_id = config.tg_admin_id
-                        if admin_id:
-                            message = f"🔔 {note_title}"
-                            if reminder.message:
-                                message += f"\n💬 {reminder.message}"
-                            message += f"\n⏰ {reminder.remind_at[:16].replace('T', ' ')}"
-                            await bot.send_message(chat_id=admin_id, text=message)
+                        from aiogram.client.session.aiohttp import AiohttpSession
+                        from .bot import current_bots
+
+                        bot = current_bots.get(reminder.user_id)
+                        close_session = False
+                        if not bot:
+                            final_proxy_url = None
+                            if isinstance(config.proxy_url, str) and (config.proxy_url.startswith("http") or config.proxy_url.startswith("socks")):
+                                final_proxy_url = config.proxy_url
+                            elif isinstance(config.proxy_config, dict) and config.proxy_config.get("host"):
+                                p = config.proxy_config
+                                final_proxy_url = f"{p.get('protocol', 'http')}://{p.get('username')}:{p.get('password')}@{p['host']}:{p['port']}" if p.get('username') else f"{p.get('protocol', 'http')}://{p['host']}:{p['port']}"
+                            session = AiohttpSession(proxy=final_proxy_url, timeout=30.0) if final_proxy_url else AiohttpSession(timeout=30.0)
+                            bot = Bot(token=config.tg_token, session=session)
+                            close_session = True
+
+                        try:
+                            admin_id = config.tg_admin_id
+                            if admin_id:
+                                message = f"🔔 {note_title}"
+                                if reminder.message:
+                                    message += f"\n💬 {reminder.message}"
+                                message += f"\n⏰ {reminder.remind_at[:16].replace('T', ' ')}"
+                                await bot.send_message(chat_id=admin_id, text=message)
+                        finally:
+                            if close_session:
+                                await bot.session.close()
 
                         # Mark as sent
                         reminder.is_sent = 1
+                        reminder_failures.pop(reminder.id, None)
                         db.commit()
 
                         # Handle repeat
                         if reminder.repeat_type and reminder.repeat_type != 'none':
-                            next_time = now
-                            if reminder.repeat_type == 'daily':
-                                next_time = now + timedelta(days=1)
-                            elif reminder.repeat_type == 'weekly':
-                                next_time = now + timedelta(weeks=1)
-                            elif reminder.repeat_type == 'monthly':
-                                next_time = now + timedelta(days=30)
-                            elif reminder.repeat_type == 'yearly':
-                                next_time = now + timedelta(days=365)
+                            try:
+                                base_time = datetime.fromisoformat(reminder.remind_at)
+                            except Exception:
+                                base_time = now
 
-                            new_reminder = Reminder(
-                                id=str(uuid.uuid4()),
-                                note_id=reminder.note_id,
-                                user_id=reminder.user_id,
-                                remind_at=next_time.isoformat(),
-                                repeat_type=reminder.repeat_type,
-                                message=reminder.message,
-                                is_sent=0,
-                                created_at=now.isoformat()
-                            )
-                            db.add(new_reminder)
-                            db.commit()
+                            step = None
+                            if reminder.repeat_type == 'daily':
+                                step = timedelta(days=1)
+                            elif reminder.repeat_type == 'weekly':
+                                step = timedelta(weeks=1)
+                            elif reminder.repeat_type == 'monthly':
+                                step = timedelta(days=30)
+                            elif reminder.repeat_type == 'yearly':
+                                step = timedelta(days=365)
+
+                            if step:
+                                next_time = base_time + step
+                                while next_time <= now:
+                                    next_time += step
+
+                                new_reminder = Reminder(
+                                    id=str(uuid.uuid4()),
+                                    note_id=reminder.note_id,
+                                    user_id=reminder.user_id,
+                                    remind_at=next_time.isoformat(),
+                                    repeat_type=reminder.repeat_type,
+                                    message=reminder.message,
+                                    is_sent=0,
+                                    created_at=now.isoformat()
+                                )
+                                db.add(new_reminder)
+                                db.commit()
 
                     except Exception as e:
                         logger.error(f"Failed to send reminder {reminder.id}: {e}")
+                        fails = reminder_failures.get(reminder.id, 0) + 1
+                        reminder_failures[reminder.id] = fails
+                        if fails >= 3:
+                            reminder_failures.pop(reminder.id, None)
+                            reminder.is_sent = 2
+                            try:
+                                db.commit()
+                            except Exception:
+                                db.rollback()
 
             finally:
                 db.close()
@@ -274,6 +347,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme), db: Session = De
     except Exception: raise HTTPException(status_code=401)
     user = db.query(User).filter(User.username == username).first()
     if user is None: raise HTTPException(status_code=401)
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="Inactive user account")
     return user
 
 # Models
@@ -340,6 +415,8 @@ async def login(req: dict, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.username == req.get("username")).first()
     if not user or not pwd_context.verify(req.get("password"), user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
+    if not user.is_active:
+        raise HTTPException(status_code=403, detail="User account is deactivated")
     expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     token = jwt.encode({"sub": user.username, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
     return {"access_token": token, "token_type": "bearer"}
@@ -347,6 +424,53 @@ async def login(req: dict, db: Session = Depends(get_db)):
 @app.get("/api/users/me", response_model=UserResponse)
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
+
+def get_folder_share_permission(folder_id: Optional[str], user_id: int, db: Session) -> Optional[str]:
+    if not folder_id:
+        return None
+    curr_fid = folder_id
+    visited = set()
+    while curr_fid and curr_fid not in visited:
+        visited.add(curr_fid)
+        s = db.query(Share).filter(Share.resource_id == curr_fid, Share.resource_type == "folder", Share.target_user_id == user_id).first()
+        if s:
+            return s.permission
+        f = db.query(Folder).filter(Folder.id == curr_fid).first()
+        if not f:
+            break
+        curr_fid = f.parentId
+    return None
+
+def get_user_accessible_note_ids(user_id: int, db: Session) -> set:
+    """Returns set of note IDs accessible to the user (owned or shared directly or via folders)."""
+    owned = db.query(Note.id).filter(Note.user_id == user_id).all()
+    accessible = {nid[0] for nid in owned}
+
+    shared_notes = db.query(Share.resource_id).filter(
+        Share.target_user_id == user_id,
+        Share.resource_type == "note"
+    ).all()
+    accessible.update(s[0] for s in shared_notes)
+
+    shared_folders = db.query(Share.resource_id).filter(
+        Share.target_user_id == user_id,
+        Share.resource_type == "folder"
+    ).all()
+    if shared_folders:
+        all_fids = {s[0] for s in shared_folders}
+        visited = set()
+        to_query = [s[0] for s in shared_folders]
+        while to_query:
+            visited.update(to_query)
+            children = db.query(Folder.id).filter(Folder.parentId.in_(to_query)).all()
+            child_ids = [c[0] for c in children if c[0] not in visited]
+            all_fids.update(child_ids)
+            to_query = child_ids
+
+        folder_notes = db.query(Note.id).filter(Note.folderId.in_(all_fids)).all()
+        accessible.update(fn[0] for fn in folder_notes)
+
+    return accessible
 
 # Note Endpoints
 @app.get("/api/notes")
@@ -358,23 +482,15 @@ async def get_notes(db: Session = Depends(get_db), current_user: User = Depends(
     # Notes owned by user
     notes = db.query(Note).filter(Note.user_id == current_user.id).all()
     
-    # Clean up orphaned notes (whose folderId refers to a deleted folder)
-    valid_notes = []
-    orphaned_notes = []
+    # Clean up orphaned notes (whose folderId refers to a non-existent folder) by resetting folderId to None
+    changed = False
     for n in notes:
         if n.folderId and n.folderId not in user_folders:
-            # Check if it might be from an old bug where folder doesn't exist
             if not db.query(Folder).filter(Folder.id == n.folderId).first():
-                orphaned_notes.append(n)
-                continue
-        valid_notes.append(n)
-        
-    if orphaned_notes:
-        for n in orphaned_notes:
-            db.delete(n)
+                n.folderId = None
+                changed = True
+    if changed:
         db.commit()
-    
-    notes = valid_notes
     
     # Notes shared directly with user
     shared_notes = db.query(Share).filter(Share.target_user_id == current_user.id, Share.resource_type == "note").all()
@@ -382,10 +498,28 @@ async def get_notes(db: Session = Depends(get_db), current_user: User = Depends(
         n = db.query(Note).filter(Note.id == s.resource_id).first()
         if n and n not in notes: notes.append(n)
         
-    # Notes in folders shared with user
+    # Notes in folders shared with user (including nested subfolders)
     shared_folders = db.query(Share).filter(Share.target_user_id == current_user.id, Share.resource_type == "folder").all()
-    for s in shared_folders:
-        folder_notes = db.query(Note).filter(Note.folderId == s.resource_id).all()
+    shared_folder_ids = [s.resource_id for s in shared_folders]
+
+    def get_all_subfolders(parent_ids: list, visited=None):
+        if not parent_ids:
+            return []
+        if visited is None:
+            visited = set()
+        to_query = [pid for pid in parent_ids if pid not in visited]
+        if not to_query:
+            return []
+        visited.update(to_query)
+        sub = db.query(Folder).filter(Folder.parentId.in_(to_query)).all()
+        sub_ids = [sf.id for sf in sub]
+        return sub + get_all_subfolders(sub_ids, visited)
+
+    all_shared_subfolder_ids = [sf.id for sf in get_all_subfolders(shared_folder_ids)]
+    all_shared_fids = set(shared_folder_ids + all_shared_subfolder_ids)
+
+    if all_shared_fids:
+        folder_notes = db.query(Note).filter(Note.folderId.in_(all_shared_fids)).all()
         for n in folder_notes:
             if n not in notes: notes.append(n)
     
@@ -402,35 +536,54 @@ async def get_notes(db: Session = Depends(get_db), current_user: User = Depends(
             if s: 
                 permission = s.permission
             else:
-                # Check folder share
+                # Check folder share (including ancestor folders)
                 if n.folderId:
-                    fs = db.query(Share).filter(Share.resource_id == n.folderId, Share.target_user_id == current_user.id).first()
-                    if fs: permission = fs.permission
+                    fs_perm = get_folder_share_permission(n.folderId, current_user.id, db)
+                    if fs_perm: permission = fs_perm
         
         # Check if shared by me
         is_shared_by_me = False
         if not is_shared:
             share_count = db.query(Share).filter(Share.resource_id == n.id, Share.owner_id == current_user.id).count()
             is_shared_by_me = share_count > 0
-            # Also check if parent folder is shared by me
+            # Also check if parent folder (or any ancestor folder) is shared by me
             if not is_shared_by_me and n.folderId:
-                folder_share_count = db.query(Share).filter(Share.resource_id == n.folderId, Share.owner_id == current_user.id).count()
-                is_shared_by_me = folder_share_count > 0
+                curr_fid = n.folderId
+                visited_fids = set()
+                while curr_fid and curr_fid not in visited_fids:
+                    visited_fids.add(curr_fid)
+                    if db.query(Share).filter(Share.resource_id == curr_fid, Share.resource_type == "folder", Share.owner_id == current_user.id).count() > 0:
+                        is_shared_by_me = True
+                        break
+                    pf = db.query(Folder).filter(Folder.id == curr_fid).first()
+                    curr_fid = pf.parentId if pf else None
 
         # Parse published expiration
         published_expires_at = None
         pub_match = re.search(r'<!-- published:[^>]*published_at:([\d-]+T[\d:]+)[^>]*expires:(\d+)', n.content or '')
         if pub_match:
-            from datetime import datetime, timedelta
-            pub_time = datetime.fromisoformat(pub_match.group(1))
-            mins = int(pub_match.group(2))
-            published_expires_at = (pub_time + timedelta(minutes=mins)).isoformat()
+            try:
+                from datetime import datetime, timedelta
+                pub_time = datetime.fromisoformat(pub_match.group(1))
+                mins = int(pub_match.group(2))
+                if mins > 0:
+                    published_expires_at = (pub_time + timedelta(minutes=mins)).isoformat()
+            except Exception:
+                pass
+
+        is_published = bool(n.content and 'published:' in n.content)
+        if is_published and published_expires_at:
+            try:
+                if datetime.now() > datetime.fromisoformat(published_expires_at):
+                    is_published = False
+            except Exception:
+                pass
 
         res.append({
             "id": n.id, "title": n.title, "content": n.content, "folderId": n.folderId,
             "isPinned": bool(n.isPinned), "isShared": is_shared, "ownerUsername": owner_name, 
             "permission": permission, "isSharedByMe": is_shared_by_me,
-            "isPublished": bool(n.content and 'published:' in n.content),
+            "isPublished": is_published,
             "publishedExpiresAt": published_expires_at,
             "updated_at": n.updated_at
         })
@@ -443,24 +596,62 @@ async def create_note(note: NoteCreate, background_tasks: BackgroundTasks, db: S
         if db_note.user_id != current_user.id:
             # Check direct share
             s = db.query(Share).filter(Share.resource_id == note.id, Share.target_user_id == current_user.id, Share.permission == "write").first()
-            if not s:
-                # Check folder share
-                if db_note.folderId:
-                    fs = db.query(Share).filter(Share.resource_id == db_note.folderId, Share.target_user_id == current_user.id, Share.permission == "write").first()
-                    if not fs: raise HTTPException(status_code=403)
-                else:
-                    raise HTTPException(status_code=403)
+            perm = s.permission if s else None
+            if not perm and db_note.folderId:
+                perm = get_folder_share_permission(db_note.folderId, current_user.id, db)
+            if not perm:
+                # Collision with another user's private note ID - assign new ID for current user
+                new_id = str(uuid.uuid4())
+                new_fid = note.folderId
+                if new_fid:
+                    target_folder = db.query(Folder).filter(Folder.id == new_fid).first()
+                    if not target_folder:
+                        new_fid = None
+                    elif target_folder.user_id != current_user.id:
+                        f_perm = get_folder_share_permission(new_fid, current_user.id, db)
+                        if f_perm != "write":
+                            new_fid = None
+                db_note = Note(
+                    id=new_id,
+                    title=note.title,
+                    content=note.content,
+                    folderId=new_fid,
+                    user_id=current_user.id,
+                    isPinned=1 if note.isPinned else 0,
+                    updated_at=note.updated_at or datetime.utcnow().isoformat()
+                )
+                db.add(db_note)
+                db.commit()
+                background_tasks.add_task(update_note_embedding, new_id, f"{note.title}\n{note.content or ''}")
+                note.id = new_id
+                return note
+            elif perm != "write":
+                raise HTTPException(status_code=403, detail="Write permission required")
         db_note.title = note.title
         db_note.content = note.content
-        db_note.folderId = note.folderId
+        if note.folderId:
+            dest_folder = db.query(Folder).filter(Folder.id == note.folderId).first()
+            if dest_folder and dest_folder.user_id == db_note.user_id:
+                db_note.folderId = note.folderId
+        else:
+            db_note.folderId = None
         db_note.isPinned = 1 if note.isPinned else 0
         db_note.updated_at = note.updated_at or datetime.utcnow().isoformat()
     else:
+        new_fid = note.folderId
+        if new_fid:
+            target_folder = db.query(Folder).filter(Folder.id == new_fid).first()
+            if not target_folder:
+                new_fid = None
+            elif target_folder.user_id != current_user.id:
+                perm = get_folder_share_permission(new_fid, current_user.id, db)
+                if perm != "write":
+                    new_fid = None
         db_note = Note(
             id=note.id, 
             title=note.title, 
             content=note.content, 
-            folderId=note.folderId, 
+            folderId=new_fid, 
             user_id=current_user.id, 
             isPinned=1 if note.isPinned else 0,
             updated_at=note.updated_at or datetime.utcnow().isoformat()
@@ -472,41 +663,145 @@ async def create_note(note: NoteCreate, background_tasks: BackgroundTasks, db: S
     
     return note
 
+def is_folder_protected(folder_id: Optional[str], db: Session) -> bool:
+    if not folder_id:
+        return False
+    curr_fid = folder_id
+    visited = set()
+    while curr_fid and curr_fid not in visited:
+        visited.add(curr_fid)
+        f = db.query(Folder).filter(Folder.id == curr_fid).first()
+        if not f:
+            break
+        if f.password_hash:
+            return True
+        curr_fid = f.parentId
+    return False
+
+def is_folder_locked(folder_id: Optional[str], unlocked_folder_ids: Optional[list], db: Session) -> bool:
+    if not folder_id:
+        return False
+    unlocked = set(unlocked_folder_ids or [])
+    curr_fid = folder_id
+    visited = set()
+    while curr_fid and curr_fid not in visited:
+        visited.add(curr_fid)
+        f = db.query(Folder).filter(Folder.id == curr_fid).first()
+        if not f:
+            break
+        if f.password_hash and curr_fid not in unlocked:
+            return True
+        curr_fid = f.parentId
+    return False
+
 @app.post("/api/notes/import")
-async def import_notes(file: UploadFile = File(...), db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def import_notes(file: UploadFile = File(...), background_tasks: BackgroundTasks = None, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     import io, zipfile
     content = await file.read()
     count = 0
-    if file.filename.endswith('.zip'):
+    filename = (file.filename or "").lower()
+    now_iso = datetime.utcnow().isoformat()
+    imported_notes = []
+    if filename.endswith('.zip'):
         with zipfile.ZipFile(io.BytesIO(content)) as z:
             for name in z.namelist():
+                if name.startswith('__MACOSX') or '/.' in name or name.endswith('/'):
+                    continue
                 if name.endswith(('.md', '.txt')):
-                    text = z.read(name).decode('utf-8')
-                    title = name.rsplit('.', 1)[0]
-                    db.add(Note(id=str(uuid.uuid4()), title=title, content=text, user_id=current_user.id))
+                    try:
+                        text = z.read(name).decode('utf-8', errors='replace')
+                    except Exception:
+                        text = z.read(name).decode('latin1', errors='replace')
+                    base_name = os.path.basename(name)
+                    title = base_name.rsplit('.', 1)[0] or "Imported Note"
+                    nid = str(uuid.uuid4())
+                    db.add(Note(id=nid, title=title, content=text, user_id=current_user.id, updated_at=now_iso))
+                    imported_notes.append((nid, f"{title}\n{text}"))
                     count += 1
+    elif filename.endswith(('.md', '.txt')):
+        try:
+            text = content.decode('utf-8', errors='replace')
+        except Exception:
+            text = content.decode('latin1', errors='replace')
+        title = os.path.splitext(file.filename or "")[0] or "Imported Note"
+        nid = str(uuid.uuid4())
+        db.add(Note(id=nid, title=title, content=text, user_id=current_user.id, updated_at=now_iso))
+        imported_notes.append((nid, f"{title}\n{text}"))
+        count += 1
     db.commit()
+
+    if background_tasks:
+        for nid, full_text in imported_notes:
+            background_tasks.add_task(update_note_embedding, nid, full_text)
+
     return {"status": "success", "count": count}
 
 @app.get("/api/notes/search")
 async def search(query: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    notes = db.query(Note).filter(Note.user_id == current_user.id, or_(Note.title.ilike(f"%{query}%"), Note.content.ilike(f"%{query}%"))).limit(20).all()
+    accessible_ids = get_user_accessible_note_ids(current_user.id, db)
+    if not accessible_ids:
+        return []
+    notes = db.query(Note).filter(Note.id.in_(accessible_ids), or_(Note.title.ilike(f"%{query}%"), Note.content.ilike(f"%{query}%"))).limit(20).all()
     res = []
     for n in notes:
-        is_protected = False
-        if n.folderId:
-            f = db.query(Folder).filter(Folder.id == n.folderId).first()
-            if f and f.password_hash: is_protected = True
+        is_protected = is_folder_protected(n.folderId, db) if n.folderId else False
         res.append({"id": n.id, "title": n.title, "content": n.content, "folderId": n.folderId, "folderIsProtected": is_protected})
     return res
 
+def compute_cosine_distance(v1, v2) -> float:
+    if v1 is None or v2 is None:
+        return 1.0
+    if isinstance(v1, str):
+        try:
+            import json
+            v1 = json.loads(v1)
+        except Exception:
+            return 1.0
+    if isinstance(v2, str):
+        try:
+            import json
+            v2 = json.loads(v2)
+        except Exception:
+            return 1.0
+    if hasattr(v1, "tolist"):
+        v1 = v1.tolist()
+    if hasattr(v2, "tolist"):
+        v2 = v2.tolist()
+    if not isinstance(v1, (list, tuple)) or not isinstance(v2, (list, tuple)):
+        return 1.0
+    if len(v1) != len(v2) or len(v1) == 0:
+        return 1.0
+    import math
+    dot = sum(float(a) * float(b) for a, b in zip(v1, v2))
+    norm1 = math.sqrt(sum(float(a) * float(a) for a in v1))
+    norm2 = math.sqrt(sum(float(b) * float(b) for b in v2))
+    if norm1 == 0.0 or norm2 == 0.0:
+        return 1.0
+    return max(0.0, 1.0 - (dot / (norm1 * norm2)))
+
 @app.get("/api/distances")
-async def get_distances(query: str, db: Session = Depends(get_db)):
+async def get_distances(query: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from .utils.embeddings import embedding_manager
     v = embedding_manager.get_vector(query)
-    notes_with_dist = db.query(Note, Note.embedding.cosine_distance(v).label("d")).filter(Note.embedding.is_not(None)).order_by("d").limit(10).all()
+    accessible_ids = get_user_accessible_note_ids(current_user.id, db)
+    if not accessible_ids:
+        return []
+    try:
+        notes_with_dist = db.query(Note, Note.embedding.cosine_distance(v).label("d")).filter(Note.id.in_(accessible_ids), Note.embedding.is_not(None)).order_by("d").limit(10).all()
+    except Exception as e:
+        logger.warning(f"Vector query failed in get_distances, using fallback: {e}")
+        user_notes = db.query(Note).filter(Note.id.in_(accessible_ids), Note.embedding.is_not(None)).all()
+        scored = []
+        for n in user_notes:
+            d = compute_cosine_distance(v, n.embedding)
+            scored.append((n, d))
+        scored.sort(key=lambda x: x[1])
+        notes_with_dist = scored[:10]
+
     res = []
-    for n, dist in notes_with_dist:
+    for item in notes_with_dist:
+        n = item[0]
+        dist = item[1] if isinstance(item, tuple) else item.d
         res.append({"title": n.title, "content": n.content[:50] if n.content else "", "distance": float(dist)})
     return res
 
@@ -514,17 +809,35 @@ async def get_distances(query: str, db: Session = Depends(get_db)):
 async def semantic_search(query: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     from .utils.embeddings import embedding_manager
     v = embedding_manager.get_vector(query)
+    accessible_ids = get_user_accessible_note_ids(current_user.id, db)
+    if not accessible_ids:
+        return []
     
-    # Log all distances for debugging
-    all_notes = db.query(Note, Note.embedding.cosine_distance(v).label("d")).filter(Note.user_id == current_user.id, Note.embedding.is_not(None)).order_by("d").limit(15).all()
+    try:
+        all_notes = db.query(Note, Note.embedding.cosine_distance(v).label("d")).filter(Note.id.in_(accessible_ids), Note.embedding.is_not(None)).order_by("d").limit(15).all()
+    except Exception as e:
+        logger.warning(f"Vector query failed in semantic_search, using fallback: {e}")
+        user_notes = db.query(Note).filter(Note.id.in_(accessible_ids), Note.embedding.is_not(None)).all()
+        scored = []
+        for n in user_notes:
+            d = compute_cosine_distance(v, n.embedding)
+            scored.append((n, d))
+        scored.sort(key=lambda x: x[1])
+        all_notes = scored[:15]
 
     if not all_notes:
         return []
 
     res = []
-    best_dist = float(all_notes[0].d)
+    first_item = all_notes[0]
+    best_dist = float(first_item[1]) if isinstance(first_item, tuple) else float(first_item.d)
     
-    for n, dist in all_notes:
+    for item in all_notes:
+        if isinstance(item, tuple):
+            n, dist = item
+        else:
+            n = item[0]
+            dist = item.d
         d = float(dist)
         
         # Absolute ceiling: never return completely unrelated nodes
@@ -535,10 +848,7 @@ async def semantic_search(query: str, db: Session = Depends(get_db), current_use
         if d > 0.38 and d > best_dist + 0.05:
             continue
             
-        is_protected = False
-        if n.folderId:
-            f = db.query(Folder).filter(Folder.id == n.folderId).first()
-            if f and f.password_hash: is_protected = True
+        is_protected = is_folder_protected(n.folderId, db) if n.folderId else False
         res.append({"id": n.id, "title": n.title, "content": n.content, "distance": d, "folderId": n.folderId, "folderIsProtected": is_protected})
     return res
 
@@ -557,9 +867,16 @@ async def export_notes(db: Session = Depends(get_db), current_user: User = Depen
     notes = db.query(Note).filter(Note.user_id == current_user.id).all()
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "a", zipfile.ZIP_DEFLATED, False) as z:
+        used_filenames = set()
         for n in notes:
-            safe_title = "".join([c for c in n.title if c.isalnum() or c==' ']).strip() or f"note_{n.id}"
-            z.writestr(f"{safe_title}.md", f"# {n.title}\n\n{n.content or ''}")
+            safe_title = "".join([c for c in (n.title or "") if c.isalnum() or c in (' ', '_', '-')]).strip() or f"note_{n.id[:8]}"
+            fname = f"{safe_title}.md"
+            idx = 1
+            while fname in used_filenames:
+                fname = f"{safe_title}_{idx}.md"
+                idx += 1
+            used_filenames.add(fname)
+            z.writestr(fname, f"# {n.title}\n\n{n.content or ''}")
     buf.seek(0)
     from fastapi.responses import Response
     return Response(content=buf.getvalue(), media_type="application/x-zip-compressed", headers={"Content-Disposition": f"attachment; filename=notes_export.zip"})
@@ -568,9 +885,17 @@ async def export_notes(db: Session = Depends(get_db), current_user: User = Depen
 async def get_note(note_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     n = db.query(Note).filter(Note.id == note_id).first()
     if not n: raise HTTPException(status_code=404)
+    permission = "owner"
     if n.user_id != current_user.id:
         s = db.query(Share).filter(Share.resource_id == note_id, Share.target_user_id == current_user.id).first()
-        if not s: raise HTTPException(status_code=403)
+        if s:
+            permission = s.permission
+        else:
+            folder_perm = get_folder_share_permission(n.folderId, current_user.id, db) if n.folderId else None
+            if folder_perm:
+                permission = folder_perm
+            else:
+                raise HTTPException(status_code=403, detail="Access denied")
     
     is_shared = n.user_id != current_user.id
     owner_name = None
@@ -579,16 +904,12 @@ async def get_note(note_id: str, db: Session = Depends(get_db), current_user: Us
         owner_name = owner.username if owner else "Unknown"
     
     # Check if folder is protected
-    folder_is_protected = False
-    if n.folderId:
-        f = db.query(Folder).filter(Folder.id == n.folderId).first()
-        if f and f.password_hash:
-            folder_is_protected = True
+    folder_is_protected = is_folder_protected(n.folderId, db) if n.folderId else False
         
     return {
         "id": n.id, "title": n.title, "content": n.content, "folderId": n.folderId,
         "isPinned": bool(n.isPinned), "isShared": is_shared, "ownerUsername": owner_name,
-        "folderIsProtected": folder_is_protected
+        "permission": permission, "folderIsProtected": folder_is_protected
     }
 
 @app.patch("/api/notes/{note_id}")
@@ -598,17 +919,34 @@ async def patch_note(note_id: str, update: NoteUpdate, background_tasks: Backgro
     if n.user_id != current_user.id:
         # Check direct share
         s = db.query(Share).filter(Share.resource_id == note_id, Share.target_user_id == current_user.id, Share.permission == "write").first()
-        if not s:
-            # Check folder share
-            if n.folderId:
-                fs = db.query(Share).filter(Share.resource_id == n.folderId, Share.target_user_id == current_user.id, Share.permission == "write").first()
-                if not fs: raise HTTPException(status_code=403)
-            else:
-                raise HTTPException(status_code=403)
+        perm = s.permission if s else None
+        if not perm and n.folderId:
+            perm = get_folder_share_permission(n.folderId, current_user.id, db)
+        if perm != "write":
+            raise HTTPException(status_code=403, detail="Write permission required")
     
     if update.title is not None: n.title = update.title
     if update.content is not None: n.content = update.content
-    if update.folderId is not None: n.folderId = update.folderId if update.folderId else None
+    if update.folderId is not None:
+        if update.folderId:
+            dest = db.query(Folder).filter(Folder.id == update.folderId).first()
+            if not dest:
+                raise HTTPException(status_code=404, detail="Destination folder not found")
+            if n.user_id == current_user.id:
+                if dest.user_id != current_user.id:
+                    dest_perm = get_folder_share_permission(dest.id, current_user.id, db)
+                    if dest_perm != "write":
+                        raise HTTPException(status_code=403, detail="Not authorized to move note into this folder")
+            else:
+                if dest.user_id != n.user_id:
+                    raise HTTPException(status_code=403, detail="Cannot move shared note into a different user's folder")
+                dest_perm = get_folder_share_permission(dest.id, current_user.id, db)
+                if dest_perm != "write":
+                    raise HTTPException(status_code=403, detail="Write permission required on destination folder")
+            n.folderId = update.folderId
+        else:
+            if n.user_id == current_user.id:
+                n.folderId = None
     if update.isPinned is not None: n.isPinned = 1 if update.isPinned else 0
     n.updated_at = update.updated_at or datetime.utcnow().isoformat()
     
@@ -632,8 +970,21 @@ def update_note_embedding(note_id: str, text: str):
 
 @app.delete("/api/notes/{note_id}")
 async def delete_note(note_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    n = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user.id).first()
+    n = db.query(Note).filter(Note.id == note_id).first()
     if not n: raise HTTPException(status_code=404)
+    if n.user_id != current_user.id:
+        share = db.query(Share).filter(
+            Share.resource_id == note_id,
+            Share.resource_type == "note",
+            Share.target_user_id == current_user.id
+        ).first()
+        if share:
+            db.delete(share)
+            db.commit()
+            return {"status": "success", "unshared": True}
+        raise HTTPException(status_code=403, detail="Not authorized to delete this note")
+    db.query(Share).filter(Share.resource_id == note_id, Share.resource_type == "note").delete(synchronize_session=False)
+    db.query(Reminder).filter(Reminder.note_id == note_id).delete(synchronize_session=False)
     db.delete(n)
     db.commit()
     return {"status": "success"}
@@ -648,6 +999,9 @@ async def get_users(db: Session = Depends(get_db), current_user: User = Depends(
 async def create_user(user: UserCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized")
+    existing_user = db.query(User).filter((User.username == user.username) | (User.email == user.email)).first()
+    if existing_user:
+        raise HTTPException(status_code=400, detail="Username or email already registered")
     db_user = User(
         username=user.username,
         email=user.email,
@@ -665,25 +1019,54 @@ async def update_user(user_id: int, update: dict, db: Session = Depends(get_db),
         raise HTTPException(status_code=403, detail="Not authorized")
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user: raise HTTPException(status_code=404)
+
+    if "username" in update and update["username"] != db_user.username:
+        if db.query(User).filter(User.username == update["username"], User.id != user_id).first():
+            raise HTTPException(status_code=400, detail="Username already taken")
+    if "email" in update and update["email"] != db_user.email:
+        if db.query(User).filter(User.email == update["email"], User.id != user_id).first():
+            raise HTTPException(status_code=400, detail="Email already taken")
+
     for k, v in update.items():
+        if k in ["id"]:
+            continue
         if k == "role" and current_user.role != "admin":
             continue # Only admins can change roles
+        if k == "is_active" and current_user.role != "admin":
+            continue # Only admins can change active status
         if k == "password" and v:
             db_user.hashed_password = pwd_context.hash(v)
         elif hasattr(db_user, k):
             setattr(db_user, k, v)
     db.commit()
     db.refresh(db_user)
+    if not db_user.is_active:
+        from .bot import stop_bot
+        asyncio.create_task(stop_bot(user_id))
     return db_user
 
 @app.delete("/api/users/{user_id}")
 async def delete_user(user_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     if current_user.role != "admin":
         raise HTTPException(status_code=403, detail="Not authorized")
+    if user_id == current_user.id:
+        raise HTTPException(status_code=400, detail="Cannot delete your own admin account")
     db_user = db.query(User).filter(User.id == user_id).first()
     if not db_user: raise HTTPException(status_code=404)
+
+    user_notes = db.query(Note).filter(Note.user_id == user_id).all()
+    user_note_ids = [n.id for n in user_notes]
+    if user_note_ids:
+        db.query(Reminder).filter(Reminder.note_id.in_(user_note_ids)).delete(synchronize_session=False)
+    db.query(Reminder).filter(Reminder.user_id == user_id).delete(synchronize_session=False)
+    db.query(Share).filter((Share.owner_id == user_id) | (Share.target_user_id == user_id)).delete(synchronize_session=False)
+    db.query(Note).filter(Note.user_id == user_id).delete(synchronize_session=False)
+    db.query(Folder).filter(Folder.user_id == user_id).delete(synchronize_session=False)
+    db.query(Config).filter(Config.user_id == user_id).delete(synchronize_session=False)
     db.delete(db_user)
     db.commit()
+    from .bot import stop_bot
+    asyncio.create_task(stop_bot(user_id))
     return {"status": "success"}
 
 # Folder Endpoints
@@ -691,11 +1074,33 @@ async def delete_user(user_id: int, db: Session = Depends(get_db), current_user:
 async def get_folders(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     folders = db.query(Folder).filter(Folder.user_id == current_user.id).all()
     
-    # Shared folders
+    # Shared folders (including nested subfolders)
     shared = db.query(Share).filter(Share.target_user_id == current_user.id, Share.resource_type == "folder").all()
+    shared_folder_ids = [s.resource_id for s in shared]
+    
+    def get_all_subfolders(parent_ids: list, visited=None):
+        if not parent_ids:
+            return []
+        if visited is None:
+            visited = set()
+        to_query = [pid for pid in parent_ids if pid not in visited]
+        if not to_query:
+            return []
+        visited.update(to_query)
+        sub = db.query(Folder).filter(Folder.parentId.in_(to_query)).all()
+        sub_ids = [sf.id for sf in sub]
+        return sub + get_all_subfolders(sub_ids, visited)
+
+    all_shared_folders = []
     for s in shared:
         f = db.query(Folder).filter(Folder.id == s.resource_id).first()
-        if f and f not in folders: folders.append(f)
+        if f:
+            all_shared_folders.append(f)
+    all_shared_folders.extend(get_all_subfolders(shared_folder_ids))
+
+    for f in all_shared_folders:
+        if f not in folders:
+            folders.append(f)
         
     res = []
     for f in folders:
@@ -706,25 +1111,52 @@ async def get_folders(db: Session = Depends(get_db), current_user: User = Depend
             owner = db.query(User).filter(User.id == f.user_id).first()
             owner_name = owner.username if owner else "Unknown"
             s = db.query(Share).filter(Share.resource_id == f.id, Share.target_user_id == current_user.id).first()
-            if s: permission = s.permission
+            if s:
+                permission = s.permission
+            else:
+                inherited = get_folder_share_permission(f.id, current_user.id, db)
+                if inherited:
+                    permission = inherited
         
         # Check if shared by me
         is_shared_by_me = False
         if not is_shared:
             share_count = db.query(Share).filter(Share.resource_id == f.id, Share.owner_id == current_user.id).count()
             is_shared_by_me = share_count > 0
+            if not is_shared_by_me and f.parentId:
+                curr_fid = f.parentId
+                visited_fids = set()
+                while curr_fid and curr_fid not in visited_fids:
+                    visited_fids.add(curr_fid)
+                    if db.query(Share).filter(Share.resource_id == curr_fid, Share.resource_type == "folder", Share.owner_id == current_user.id).count() > 0:
+                        is_shared_by_me = True
+                        break
+                    pf = db.query(Folder).filter(Folder.id == curr_fid).first()
+                    curr_fid = pf.parentId if pf else None
 
         res.append({
             "id": f.id, "name": f.name, "parentId": f.parentId,
             "isShared": is_shared, "ownerUsername": owner_name, 
             "permission": permission, "isSharedByMe": is_shared_by_me,
-            "isProtected": f.password_hash is not None,
+            "isProtected": is_folder_protected(f.id, db),
             "updated_at": f.updated_at
         })
     return res
 
 @app.post("/api/folders")
 async def create_folder(f: FolderCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    # Avoid self-parenting
+    if f.parentId == f.id:
+        f.parentId = None
+    if f.parentId:
+        parent_folder = db.query(Folder).filter(Folder.id == f.parentId).first()
+        if not parent_folder:
+            f.parentId = None
+        elif parent_folder.user_id != current_user.id:
+            perm = get_folder_share_permission(f.parentId, current_user.id, db)
+            if perm != "write":
+                f.parentId = None
+
     # Check if folder already exists (to avoid IntegrityError on duplicate ID)
     existing = db.query(Folder).filter(Folder.id == f.id).first()
     if existing:
@@ -755,11 +1187,32 @@ async def create_folder(f: FolderCreate, db: Session = Depends(get_db), current_
 
 @app.patch("/api/folders/{id}")
 async def patch_folder(id: str, u: FolderUpdate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    f = db.query(Folder).filter(Folder.id == id, Folder.user_id == current_user.id).first()
+    f = db.query(Folder).filter(Folder.id == id).first()
     if not f: raise HTTPException(status_code=404)
+    if f.user_id != current_user.id:
+        perm = get_folder_share_permission(id, current_user.id, db)
+        if perm != "write":
+            raise HTTPException(status_code=403, detail="Write permission required")
+        if u.password is not None:
+            raise HTTPException(status_code=403, detail="Only folder owner can configure folder password")
+
     if u.name is not None: f.name = u.name
-    if u.parentId is not None: f.parentId = u.parentId if u.parentId else None
-    if u.password is not None:
+    if u.parentId is not None:
+        if u.parentId == id:
+            raise HTTPException(status_code=400, detail="Folder cannot be its own parent")
+        if u.parentId:
+            curr = u.parentId
+            visited = set()
+            while curr:
+                if curr == id:
+                    raise HTTPException(status_code=400, detail="Cannot move folder into its own subfolder")
+                if curr in visited:
+                    break
+                visited.add(curr)
+                parent_obj = db.query(Folder).filter(Folder.id == curr).first()
+                curr = parent_obj.parentId if parent_obj else None
+        f.parentId = u.parentId if u.parentId else None
+    if u.password is not None and f.user_id == current_user.id:
         f.password_hash = pwd_context.hash(u.password) if u.password else None
     f.updated_at = u.updated_at or datetime.utcnow().isoformat()
     db.commit()
@@ -767,44 +1220,92 @@ async def patch_folder(id: str, u: FolderUpdate, db: Session = Depends(get_db), 
 
 @app.post("/api/folders/{id}/verify")
 async def verify_folder_password(id: str, req: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    f = db.query(Folder).filter(Folder.id == id, Folder.user_id == current_user.id).first()
+    f = db.query(Folder).filter(Folder.id == id).first()
     if not f: raise HTTPException(status_code=404)
-    if not f.password_hash: return {"success": True}
-    if pwd_context.verify(req.get("password", ""), f.password_hash):
-        return {"success": True}
-    return {"success": False}
+    if f.user_id != current_user.id:
+        perm = get_folder_share_permission(id, current_user.id, db)
+        if not perm: raise HTTPException(status_code=403, detail="Access denied")
+    
+    curr_fid = id
+    visited = set()
+    while curr_fid and curr_fid not in visited:
+        visited.add(curr_fid)
+        curr_folder = db.query(Folder).filter(Folder.id == curr_fid).first()
+        if not curr_folder:
+            break
+        if curr_folder.password_hash:
+            if pwd_context.verify(req.get("password", ""), curr_folder.password_hash):
+                return {"success": True}
+            return {"success": False}
+        curr_fid = curr_folder.parentId
+    return {"success": True}
 
 @app.post("/api/folders/verify-by-note/{note_id}")
 async def verify_folder_password_by_note(note_id: str, req: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user.id).first()
+    note = db.query(Note).filter(Note.id == note_id).first()
     if not note: raise HTTPException(status_code=404)
+    if note.user_id != current_user.id:
+        s = db.query(Share).filter(Share.resource_id == note_id, Share.target_user_id == current_user.id).first()
+        if not s:
+            folder_perm = get_folder_share_permission(note.folderId, current_user.id, db) if note.folderId else None
+            if not folder_perm:
+                raise HTTPException(status_code=403, detail="Access denied")
     if not note.folderId: return {"success": True}
     
-    f = db.query(Folder).filter(Folder.id == note.folderId).first()
-    if not f or not f.password_hash: return {"success": True}
-    
-    if pwd_context.verify(req.get("password", ""), f.password_hash):
-        return {"success": True}
-    return {"success": False}
+    curr_fid = note.folderId
+    visited = set()
+    while curr_fid and curr_fid not in visited:
+        visited.add(curr_fid)
+        f = db.query(Folder).filter(Folder.id == curr_fid).first()
+        if not f:
+            break
+        if f.password_hash:
+            if pwd_context.verify(req.get("password", ""), f.password_hash):
+                return {"success": True}
+            return {"success": False}
+        curr_fid = f.parentId
+        
+    return {"success": True}
 
 @app.delete("/api/folders/{id}")
 async def delete_folder(id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    f = db.query(Folder).filter(Folder.id == id, Folder.user_id == current_user.id).first()
+    f = db.query(Folder).filter(Folder.id == id).first()
     if not f: raise HTTPException(status_code=404)
+    if f.user_id != current_user.id:
+        share = db.query(Share).filter(
+            Share.resource_id == id,
+            Share.resource_type == "folder",
+            Share.target_user_id == current_user.id
+        ).first()
+        if share:
+            db.delete(share)
+            db.commit()
+            return {"status": "success", "unshared": True}
+        raise HTTPException(status_code=403, detail="Not authorized to delete this folder")
     
-    def get_all_child_folders(fid: str):
+    def get_all_child_folders(fid: str, visited=None):
+        if visited is None:
+            visited = set()
+        if fid in visited:
+            return []
+        visited.add(fid)
         children = db.query(Folder).filter(Folder.parentId == fid).all()
         ids = [fid]
         for c in children:
-            ids.extend(get_all_child_folders(c.id))
+            ids.extend(get_all_child_folders(c.id, visited))
         return ids
     
     all_fids = get_all_child_folders(id)
     
-    # Delete all notes in these folders
-    db.query(Note).filter(Note.folderId.in_(all_fids)).delete(synchronize_session=False)
-    
-    # Delete the folders
+    # Delete all notes in these folders and associated shares/reminders
+    notes = db.query(Note).filter(Note.folderId.in_(all_fids)).all()
+    note_ids = [n.id for n in notes]
+    if note_ids:
+        db.query(Share).filter(Share.resource_id.in_(note_ids), Share.resource_type == "note").delete(synchronize_session=False)
+        db.query(Reminder).filter(Reminder.note_id.in_(note_ids)).delete(synchronize_session=False)
+        db.query(Note).filter(Note.id.in_(note_ids)).delete(synchronize_session=False)
+        
+    db.query(Share).filter(Share.resource_id.in_(all_fids), Share.resource_type == "folder").delete(synchronize_session=False)
     db.query(Folder).filter(Folder.id.in_(all_fids)).delete(synchronize_session=False)
     
     db.commit()
@@ -813,6 +1314,17 @@ async def delete_folder(id: str, db: Session = Depends(get_db), current_user: Us
 # Sharing Endpoints
 @app.get("/api/shares/{resource_type}/{resource_id}")
 async def get_shares(resource_type: str, resource_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if resource_type == "note":
+        res_note = db.query(Note).filter(Note.id == resource_id).first()
+        if not res_note or res_note.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+    elif resource_type == "folder":
+        res_folder = db.query(Folder).filter(Folder.id == resource_id).first()
+        if not res_folder or res_folder.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+    else:
+        raise HTTPException(status_code=400, detail="Invalid resource type")
+
     shares = db.query(Share).filter(Share.resource_id == resource_id, Share.resource_type == resource_type, Share.owner_id == current_user.id).all()
     res = []
     for s in shares:
@@ -828,11 +1340,30 @@ async def get_shares(resource_type: str, resource_id: str, db: Session = Depends
 
 @app.post("/api/shares/{resource_type}/{resource_id}")
 async def create_share(resource_type: str, resource_id: str, s: ShareCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    if resource_type == "note":
+        res_note = db.query(Note).filter(Note.id == resource_id).first()
+        if not res_note or res_note.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to share this note")
+    elif resource_type == "folder":
+        res_folder = db.query(Folder).filter(Folder.id == resource_id).first()
+        if not res_folder or res_folder.user_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Not authorized to share this folder")
+    else:
+        raise HTTPException(status_code=400, detail="Invalid resource type")
+
     target_user_id = None
     if s.target_username:
         u = db.query(User).filter(User.username == s.target_username).first()
         if not u: raise HTTPException(status_code=404, detail="User not found")
+        if u.id == current_user.id:
+            raise HTTPException(status_code=400, detail="Cannot share with yourself")
         target_user_id = u.id
+
+    if s.is_public:
+        if resource_type == "folder" and is_folder_protected(resource_id, db):
+            raise HTTPException(status_code=400, detail="Cannot publicly share a password-protected folder")
+        elif resource_type == "note" and res_note.folderId and is_folder_protected(res_note.folderId, db):
+            raise HTTPException(status_code=400, detail="Cannot publicly share a note in a password-protected folder")
     
     # Check if share already exists
     existing = db.query(Share).filter(
@@ -905,6 +1436,8 @@ async def get_public_share(share_id: str, db: Session = Depends(get_db)):
     if s.resource_type == "note":
         n = db.query(Note).filter(Note.id == s.resource_id).first()
         if not n: raise HTTPException(status_code=404, detail="Note not found")
+        if n.folderId and is_folder_protected(n.folderId, db):
+            raise HTTPException(status_code=403, detail="Cannot access notes from password-protected folders publicly")
         return {
             "share": {
                 "id": s.id, "resource_id": s.resource_id, "resource_type": s.resource_type,
@@ -918,6 +1451,8 @@ async def get_public_share(share_id: str, db: Session = Depends(get_db)):
     if s.resource_type == "folder":
         f = db.query(Folder).filter(Folder.id == s.resource_id).first()
         if not f: raise HTTPException(status_code=404, detail="Folder not found")
+        if is_folder_protected(f.id, db):
+            raise HTTPException(status_code=403, detail="Cannot access password-protected folders publicly")
         
         # Get all notes in this folder
         notes = db.query(Note).filter(Note.folderId == f.id).all()
@@ -948,6 +1483,7 @@ async def update_public_share(share_id: str, update: NoteUpdate, db: Session = D
         if not n: raise HTTPException(status_code=404)
         if update.title is not None: n.title = update.title
         if update.content is not None: n.content = update.content
+        n.updated_at = datetime.utcnow().isoformat()
         db.commit()
         return {"status": "success"}
     
@@ -961,6 +1497,7 @@ async def update_public_share(share_id: str, update: NoteUpdate, db: Session = D
         
         if update.title is not None: n.title = update.title
         if update.content is not None: n.content = update.content
+        n.updated_at = datetime.utcnow().isoformat()
         db.commit()
         return {"status": "success"}
         
@@ -971,7 +1508,24 @@ async def update_public_share(share_id: str, update: NoteUpdate, db: Session = D
 async def get_settings(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     c = db.query(Config).filter(Config.user_id == current_user.id).first()
     if not c: return {}
-    return {"tg_token": c.tg_token, "tg_admin_id": c.tg_admin_id, "llm_provider": c.llm_provider, "api_key": c.api_key, "proxy_url": c.proxy_url, "base_url": c.base_url, "model_name": c.model_name, "proxy_config": c.proxy_config}
+    return {
+        "tg_token": c.tg_token,
+        "tg_admin_id": c.tg_admin_id,
+        "llm_provider": c.llm_provider,
+        "api_key": c.api_key,
+        "proxy_url": c.proxy_url,
+        "base_url": c.base_url,
+        "model_name": c.model_name,
+        "proxy_config": c.proxy_config,
+        "google_calendar_client_id": c.google_calendar_client_id,
+        "google_calendar_connected": bool(c.google_calendar_token)
+    }
+
+ALLOWED_CONFIG_KEYS = {
+    "tg_token", "tg_admin_id", "llm_provider", "api_key", "proxy_url",
+    "base_url", "model_name", "proxy_config", "google_calendar_client_id",
+    "google_calendar_client_secret"
+}
 
 @app.post("/api/settings")
 async def update_settings(s: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
@@ -979,10 +1533,14 @@ async def update_settings(s: dict, db: Session = Depends(get_db), current_user: 
     if not c:
         c = Config(user_id=current_user.id)
         db.add(c)
+    from sqlalchemy.orm.attributes import flag_modified
     for k, v in s.items():
-        if hasattr(c, k): setattr(c, k, v)
+        if k in ALLOWED_CONFIG_KEYS and hasattr(c, k):
+            setattr(c, k, v)
+            if k == "proxy_config":
+                flag_modified(c, "proxy_config")
     db.commit()
-    if c.tg_token:
+    if "tg_token" in s or "proxy_url" in s or "proxy_config" in s or "tg_admin_id" in s or c.tg_token:
         asyncio.create_task(restart_bot(current_user.id, current_user.username, c.tg_token, c.proxy_url, c.proxy_config, c.tg_admin_id))
     return {"status": "success"}
 
@@ -1133,7 +1691,7 @@ async def get_logs(current_user: User = Depends(get_current_user)):
         exists = os.path.exists(LOG_FILE)
         size = os.path.getsize(LOG_FILE) if exists else 0
         if exists:
-            with open(LOG_FILE, "r") as f:
+            with open(LOG_FILE, "r", encoding="utf-8", errors="replace") as f:
                 # Return last 200 lines
                 lines = f.readlines()
                 return {
@@ -1157,6 +1715,7 @@ async def get_logs(current_user: User = Depends(get_current_user)):
         return {"logs": f"Error reading logs: {str(e)}"}
 
 @app.get("/api/external-db")
+@app.get("/api/external-dbs")
 async def get_external_dbs(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     config = db.query(Config).filter(Config.user_id == current_user.id).first()
     if not config or not config.external_dbs:
@@ -1164,43 +1723,56 @@ async def get_external_dbs(db: Session = Depends(get_db), current_user: User = D
     return {"dbs": config.external_dbs}
 
 @app.post("/api/external-db")
+@app.post("/api/external-dbs")
 async def add_external_db(db_data: dict, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from sqlalchemy.orm.attributes import flag_modified
     config = db.query(Config).filter(Config.user_id == current_user.id).first()
     if not config:
         config = Config(user_id=current_user.id)
         db.add(config)
     
-    dbs = config.external_dbs or []
+    dbs = list(config.external_dbs or [])
     # Add unique ID to new DB
     db_data['id'] = str(uuid.uuid4())
     dbs.append(db_data)
     config.external_dbs = dbs
+    flag_modified(config, "external_dbs")
     db.commit()
     return {"status": "success", "dbs": dbs}
 
 @app.delete("/api/external-db/{db_id}")
+@app.delete("/api/external-dbs/{db_id}")
 async def delete_external_db(db_id: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    from sqlalchemy.orm.attributes import flag_modified
     config = db.query(Config).filter(Config.user_id == current_user.id).first()
     if not config or not config.external_dbs:
         raise HTTPException(status_code=404)
     
     dbs = [d for d in config.external_dbs if d.get('id') != db_id]
     config.external_dbs = dbs
+    flag_modified(config, "external_dbs")
     db.commit()
     return {"status": "success", "dbs": dbs}
 
 @app.post("/api/upload")
 async def upload(file: UploadFile = File(...), current_user: User = Depends(get_current_user)):
-    fname = f"{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
-    path = os.path.join('/app/storage/uploads', fname)
-    with open(path, "wb") as b: b.write(await file.read())
+    os.makedirs(UPLOAD_DIR, exist_ok=True)
+    ext = os.path.splitext(file.filename or "")[1]
+    safe_ext = "".join(c for c in ext if c.isalnum() or c == '.')[:10]
+    fname = f"{uuid.uuid4()}{safe_ext}"
+    path = os.path.join(UPLOAD_DIR, fname)
+    with open(path, "wb") as b:
+        b.write(await file.read())
     return {"url": f"/api/uploads/{fname}"}
 
 @app.get("/api/uploads/{name}")
 async def get_upload(name: str):
-    path = os.path.join('/app/storage/uploads', name)
-    if os.path.exists(path): return FileResponse(path)
-    raise HTTPException(status_code=404)
+    safe_name = os.path.basename(name)
+    path = os.path.abspath(os.path.join(UPLOAD_DIR, safe_name))
+    upload_dir_abs = os.path.abspath(UPLOAD_DIR)
+    if not (path == upload_dir_abs or path.startswith(upload_dir_abs + os.sep)) or not os.path.exists(path) or os.path.isdir(path):
+        raise HTTPException(status_code=404)
+    return FileResponse(path)
 
 class ChatRequest(BaseModel):
     message: str
@@ -1214,7 +1786,7 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
     import re
     
     # 0. Получение конфигурации LLM
-    config = db.query(Config).first()
+    config = db.query(Config).filter(Config.user_id == current_user.id).first()
     if not config or not config.llm_provider:
         return {
             "answer": "ИИ-провайдер не настроен. Пожалуйста, настройте его в настройках.",
@@ -1260,7 +1832,9 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
                 payload = {"contents": [{"parts": [{"text": expansion_prompt}]}]}
                 resp = await client.post(url, json=payload, timeout=10)
                 if resp.status_code == 200:
-                    expanded_text = resp.json()['candidates'][0]['content']['parts'][0]['text']
+                    cand_list = resp.json().get('candidates', [])
+                    if cand_list and 'content' in cand_list[0] and 'parts' in cand_list[0]['content'] and cand_list[0]['content']['parts']:
+                        expanded_text = cand_list[0]['content']['parts'][0].get('text', '')
         
         if expanded_text:
             # Очищаем и добавляем новые слова
@@ -1280,14 +1854,8 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
             note.embedding = embedding_manager.get_vector(text_to_embed)
         db.commit()
 
-    # 2.5 Определить защищенные папки (чтобы скрыть их контент, но оставить в поиске)
+    # 2.5 Список разблокированных папок
     unlocked_ids = req.unlockedFolderIds or []
-    protected_folder_ids = [f.id for f in db.query(Folder.id).filter(
-        Folder.user_id == current_user.id, 
-        Folder.password_hash.is_not(None),
-        Folder.password_hash != "",
-        Folder.id.notin_(unlocked_ids + ['placeholder_to_avoid_empty_in_sql'])
-    ).all()]
 
     base_filters = [Note.user_id == current_user.id]
 
@@ -1311,17 +1879,28 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
     query_vector = embedding_manager.get_vector(req.message)
     semantic_threshold = 0.40
     
-    semantic_results = db.query(
-        Note, 
-        Note.embedding.cosine_distance(query_vector).label("distance")
-    ).filter(
-        *base_filters,
-        Note.embedding.is_not(None)
-    ).filter(
-        Note.embedding.cosine_distance(query_vector) <= semantic_threshold
-    ).order_by(
-        Note.embedding.cosine_distance(query_vector)
-    ).limit(15).all()
+    try:
+        semantic_results = db.query(
+            Note, 
+            Note.embedding.cosine_distance(query_vector).label("distance")
+        ).filter(
+            *base_filters,
+            Note.embedding.is_not(None)
+        ).filter(
+            Note.embedding.cosine_distance(query_vector) <= semantic_threshold
+        ).order_by(
+            Note.embedding.cosine_distance(query_vector)
+        ).limit(15).all()
+    except Exception as e:
+        logger.warning(f"Vector search in chat failed, using fallback: {e}")
+        candidate_notes = db.query(Note).filter(*base_filters, Note.embedding.is_not(None)).all()
+        scored = []
+        for n in candidate_notes:
+            d = compute_cosine_distance(query_vector, n.embedding)
+            if d <= semantic_threshold:
+                scored.append((n, d))
+        scored.sort(key=lambda x: x[1])
+        semantic_results = scored[:15]
     
     # 5. Дедупликация и объединение
     combined_notes = {}
@@ -1342,7 +1921,7 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
     # 6. Формирование контекста
     context_parts = []
     for i, note in enumerate(final_notes):
-        if note.folderId in protected_folder_ids:
+        if is_folder_locked(note.folderId, unlocked_ids, db):
             content = "[ЗАКРЫТО ПАРОЛЕМ. Содержимое скрыто.]"
         else:
             content = note.content
@@ -1385,7 +1964,11 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
                 payload = {"contents": [{"parts": [{"text": prompt}]}]}
                 response = await client.post(url, json=payload, timeout=30)
                 if response.status_code == 200:
-                    answer = response.json()['candidates'][0]['content']['parts'][0]['text']
+                    cand_list = response.json().get('candidates', [])
+                    if cand_list and 'content' in cand_list[0] and 'parts' in cand_list[0]['content'] and cand_list[0]['content']['parts']:
+                        answer = cand_list[0]['content']['parts'][0].get('text', '')
+                    else:
+                        answer = "Ответ модели пуст или был заблокирован фильтрами безопасности."
                 else:
                     answer = f"Ошибка Gemini API: {response.text}"
         
@@ -1400,8 +1983,8 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
             answer = answer_text
 
         # 1. Разобьем заметки на открытые и закрытые
-        open_notes = [n for n in final_notes if n.folderId not in protected_folder_ids]
-        protected_notes = [n for n in final_notes if n.folderId in protected_folder_ids]
+        open_notes = [n for n in final_notes if not is_folder_locked(n.folderId, unlocked_ids, db)]
+        protected_notes = [n for n in final_notes if is_folder_locked(n.folderId, unlocked_ids, db)]
         
         # 2. Формируем цитаты
         final_citations = []
@@ -1410,7 +1993,8 @@ async def chat_with_notes(req: ChatRequest, db: Session = Depends(get_db), curre
         # Защищенные всегда считаем релевантными, если движок их отобрал
         final_relevant_notes = relevant_open + protected_notes
         for note in final_relevant_notes:
-            snippet_short = "[Защищено паролем]" if note.folderId in protected_folder_ids else (note.content[:100] + "..." if note.content else "")
+            is_locked = is_folder_locked(note.folderId, unlocked_ids, db)
+            snippet_short = "[Защищено паролем]" if is_locked else (note.content[:100] + "..." if note.content else "")
             final_citations.append({
                 "id": note.id,
                 "title": note.title,
@@ -1487,7 +2071,11 @@ async def summarize_content(req: dict, db: Session = Depends(get_db), current_us
                 payload = {"contents": [{"parts": [{"text": prompt}]}]}
                 response = await client.post(url, json=payload, timeout=30)
                 if response.status_code == 200:
-                    summary = response.json()['candidates'][0]['content']['parts'][0]['text']
+                    cand_list = response.json().get('candidates', [])
+                    if cand_list and 'content' in cand_list[0] and 'parts' in cand_list[0]['content'] and cand_list[0]['content']['parts']:
+                        summary = cand_list[0]['content']['parts'][0].get('text', '')
+                    else:
+                        summary = "Не удалось сгенерировать резюме (пустой ответ модели)."
                 else:
                     raise Exception(f"Gemini error: {response.text}")
         
@@ -1499,6 +2087,7 @@ async def summarize_content(req: dict, db: Session = Depends(get_db), current_us
 # ==================== REMINDERS API ====================
 
 class ReminderCreate(BaseModel):
+    id: Optional[str] = None
     note_id: Optional[str] = None
     remind_at: str
     repeat_type: Optional[str] = "none"
@@ -1506,8 +2095,19 @@ class ReminderCreate(BaseModel):
 
 @app.post("/api/reminders")
 async def create_reminder(reminder: ReminderCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    existing = db.query(Reminder).filter(Reminder.id == reminder.id, Reminder.user_id == current_user.id).first() if reminder.id else None
+    if existing:
+        if existing.remind_at != reminder.remind_at:
+            existing.is_sent = 0
+        existing.note_id = reminder.note_id
+        existing.remind_at = reminder.remind_at
+        existing.repeat_type = reminder.repeat_type
+        existing.message = reminder.message
+        db.commit()
+        return {"id": existing.id, "status": "updated"}
+
     new_reminder = Reminder(
-        id=str(uuid.uuid4()),
+        id=reminder.id or str(uuid.uuid4()),
         note_id=reminder.note_id,
         user_id=current_user.id,
         remind_at=reminder.remind_at,
@@ -1536,18 +2136,47 @@ async def delete_reminder(reminder_id: str, db: Session = Depends(get_db), curre
 
 # ==================== PUBLISHING API ====================
 
+class NotePublishRequest(BaseModel):
+    expires_hours: Optional[int] = None
+    expires_minutes: Optional[int] = None
+
 @app.post("/api/notes/{note_id}/publish")
-async def publish_note(note_id: str, expires_hours: int = 0, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+async def publish_note(
+    note_id: str,
+    req: Optional[NotePublishRequest] = None,
+    expires_hours: int = 0,
+    expires_minutes: Optional[int] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
     note = db.query(Note).filter(Note.id == note_id, Note.user_id == current_user.id).first()
     if not note:
         raise HTTPException(status_code=404, detail="Note not found")
+    if note.folderId and is_folder_protected(note.folderId, db):
+        raise HTTPException(status_code=400, detail="Cannot publish notes from password-protected folders")
 
     import uuid, re
     from datetime import datetime, timedelta
     slug = uuid.uuid4().hex[:12]
     now = datetime.now().isoformat()
     note.content = re.sub(r'\n*<!-- published:.*?-->\n*', '', note.content or '')
-    expires_part = f' expires:{expires_hours}' if expires_hours > 0 else ''
+
+    total_minutes = None
+    if req:
+        if req.expires_minutes is not None:
+            total_minutes = req.expires_minutes
+        elif req.expires_hours is not None:
+            total_minutes = req.expires_hours * 60
+
+    if total_minutes is None:
+        if expires_minutes is not None:
+            total_minutes = expires_minutes
+        elif expires_hours > 0:
+            total_minutes = expires_hours * 60
+        else:
+            total_minutes = 0
+
+    expires_part = f' expires:{total_minutes}' if total_minutes > 0 else ''
     note.content = (note.content or '') + f"\n\n<!-- published:{slug} published_at:{now}{expires_part} -->"
     db.commit()
 
@@ -1555,8 +2184,8 @@ async def publish_note(note_id: str, expires_hours: int = 0, db: Session = Depen
         "slug": slug,
         "url": f"/api/published/{slug}",
         "title": note.title,
-        "expires_minutes": expires_hours,
-        "expires_at": (datetime.now() + timedelta(minutes=expires_hours)).isoformat() if expires_hours > 0 else None
+        "expires_minutes": total_minutes,
+        "expires_at": (datetime.now() + timedelta(minutes=total_minutes)).isoformat() if total_minutes > 0 else None
     }
 
 @app.post("/api/notes/{note_id}/unpublish")
@@ -1573,6 +2202,7 @@ async def unpublish_note(note_id: str, db: Session = Depends(get_db), current_us
 @app.get("/api/published/{slug}")
 async def get_published_note(slug: str, db: Session = Depends(get_db)):
     import re
+    import html as html_lib
     from datetime import datetime, timedelta
     from fastapi.responses import HTMLResponse
 
@@ -1585,6 +2215,8 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
 
     if not note:
         raise HTTPException(status_code=404, detail="Note not found or not published")
+    if note.folderId and is_folder_protected(note.folderId, db):
+        raise HTTPException(status_code=403, detail="Cannot access notes from password-protected folders publicly")
 
     # Check expiration
     expires_match = re.search(rf'<!-- published:{re.escape(slug)}[^>]*expires:(\d+)', note.content or '')
@@ -1600,8 +2232,9 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     is_board = bool(board_match)
     board_data = board_match.group(1) if board_match else None
 
-    safe_content = (note.content or '').replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${').replace('\n', '\\n')
-    description = (note.content or '')[:160]
+    safe_content = (note.content or '').replace('\\', '\\\\').replace('`', '\\`').replace('${', '\\${').replace('\n', '\\n').replace('</script', '<\\/script')
+    description = html_lib.escape((note.content or '')[:160], quote=True)
+    escaped_title = html_lib.escape(note.title or 'Untitled')
 
     if is_board and board_data:
         safe_board_data = board_data.replace('</script', '<\\/script')
@@ -1752,7 +2385,7 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     </script>
 </body>
 </html>"""
-        html = html.replace('BOARD_TITLE', note.title).replace('BOARD_DATA', safe_board_data)
+        html = html.replace('BOARD_TITLE', escaped_title).replace('BOARD_DATA', safe_board_data)
     else:
         html = """<!DOCTYPE html>
 <html lang="ru">
@@ -1797,12 +2430,12 @@ async def get_published_note(slug: str, db: Session = Depends(get_db)):
     </script>
 </body>
 </html>"""
-        html = html.replace('NOTE_TITLE', note.title).replace('NOTE_DESCRIPTION', description).replace('NOTE_CONTENT', safe_content)
+        html = html.replace('NOTE_TITLE', escaped_title).replace('NOTE_DESCRIPTION', description).replace('NOTE_CONTENT', safe_content)
     return HTMLResponse(content=html)
 
 # ==================== GOOGLE CALENDAR API ====================
 
-GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:3344/api/calendar/callback")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", f"{API_BASE_URL}/api/calendar/callback")
 GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar"
 
 class CalendarEventCreate(BaseModel):
@@ -1853,7 +2486,12 @@ async def calendar_callback(code: str = None, state: str = None, db: Session = D
         raise HTTPException(status_code=400, detail="Authorization code not provided")
 
     # Get client credentials from config
-    user_id = int(state) if state else None
+    user_id = None
+    if state:
+        try:
+            user_id = int(state)
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Invalid state parameter")
     config = db.query(Config).filter(Config.user_id == user_id).first() if user_id else None
     if not config or not config.google_calendar_client_id:
         raise HTTPException(status_code=400, detail="Google Calendar credentials not configured")
@@ -1972,7 +2610,7 @@ async def create_calendar_event(event: CalendarEventCreate, db: Session = Depend
                 return await create_calendar_event(event, db, current_user)
         raise HTTPException(status_code=401, detail="Google Calendar token expired")
 
-    if response.status_code != 200:
+    if response.status_code not in (200, 201):
         raise HTTPException(status_code=response.status_code, detail="Failed to create calendar event")
 
     created = response.json()
@@ -1993,7 +2631,14 @@ async def delete_calendar_event(event_id: str, db: Session = Depends(get_db), cu
             headers={"Authorization": f"Bearer {access_token}"}
         )
 
-    if response.status_code == 204:
+    if response.status_code == 401:
+        if config.google_calendar_refresh:
+            refreshed = await refresh_google_token(config, db)
+            if refreshed:
+                return await delete_calendar_event(event_id, db, current_user)
+        raise HTTPException(status_code=401, detail="Google Calendar token expired")
+
+    if response.status_code in (200, 204):
         return {"status": "deleted"}
     raise HTTPException(status_code=response.status_code, detail="Failed to delete event")
 
@@ -2047,13 +2692,15 @@ if os.path.exists(STATIC_DIR):
         if full_path.startswith("api/"):
             raise HTTPException(status_code=404)
             
-        # Check if requested file exists in static dir
-        file_path = os.path.join(STATIC_DIR, full_path)
-        if os.path.isfile(file_path):
+        static_dir_abs = os.path.abspath(STATIC_DIR)
+        file_path = os.path.abspath(os.path.join(STATIC_DIR, full_path))
+        
+        # Ensure path does not escape STATIC_DIR
+        if (file_path == static_dir_abs or file_path.startswith(static_dir_abs + os.sep)) and os.path.isfile(file_path):
             return FileResponse(file_path)
             
         # Otherwise serve index.html for SPA routing
-        index_path = os.path.join(STATIC_DIR, "index.html")
+        index_path = os.path.join(static_dir_abs, "index.html")
         if os.path.exists(index_path):
             return FileResponse(index_path)
         
@@ -2063,4 +2710,4 @@ else:
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=3344)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.getenv("PORT", 3344)))

@@ -107,7 +107,7 @@ export default function AddDBModal({ isOpen, onClose, onConnect }: AddDBModalPro
                   />
                 </div>
                 <p className="text-[10px] text-muted-foreground/60 mt-2 font-mono">
-                  PRO TIP: Ensure your database allows connections from this server's IP.
+                  PRO TIP: Ensure your database allows connections from this server&apos;s IP.
                 </p>
               </div>
             </div>

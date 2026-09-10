@@ -133,10 +133,17 @@ export default function App() {
     if (!note) return;
 
     if (note.folderId) {
-      const folder = folders.find(f => f.id === note.folderId);
-      if (folder?.isProtected && !unlockedFolders.has(folder.id)) {
-        document.dispatchEvent(new CustomEvent('request-folder-unlock', { detail: { folderId: folder.id, noteId: id, mode } }));
-        return;
+      let curId: string | undefined = note.folderId;
+      const visited = new Set<string>();
+      while (curId && !visited.has(curId)) {
+        visited.add(curId);
+        const folder = folders.find(f => f.id === curId);
+        if (!folder) break;
+        if (folder.isProtected && !unlockedFolders.has(folder.id)) {
+          document.dispatchEvent(new CustomEvent('request-folder-unlock', { detail: { folderId: folder.id, noteId: id, mode } }));
+          return;
+        }
+        curId = folder.parentId;
       }
     }
 
@@ -160,8 +167,15 @@ export default function App() {
   const availableNotes = React.useMemo(() => {
     let filtered = notes.filter(n => {
       if (!n.folderId) return true;
-      const f = folders.find(f => f.id === n.folderId);
-      if (f?.isProtected && !unlockedFolders.has(n.folderId)) return false;
+      let curId: string | undefined = n.folderId;
+      const visited = new Set<string>();
+      while (curId && !visited.has(curId)) {
+        visited.add(curId);
+        const f = folders.find(f => f.id === curId);
+        if (!f) break;
+        if (f.isProtected && !unlockedFolders.has(f.id)) return false;
+        curId = f.parentId;
+      }
       return true;
     });
     if (smartFilter) {

@@ -33,12 +33,16 @@ export default function TableEditor({ content, onChange, readOnly = false }: Tab
     return { headers, rows };
   }, [content]);
 
-  // Sort rows
+  // Sort rows with original index
+  const indexedRows = useMemo(() => {
+    return rows.map((row, origIndex) => ({ row, origIndex }));
+  }, [rows]);
+
   const sortedRows = useMemo(() => {
-    if (!sortConfig) return rows;
-    return [...rows].sort((a, b) => {
-      const aVal = a[sortConfig.column] || '';
-      const bVal = b[sortConfig.column] || '';
+    if (!sortConfig) return indexedRows;
+    return [...indexedRows].sort((a, b) => {
+      const aVal = a.row[sortConfig.column] || '';
+      const bVal = b.row[sortConfig.column] || '';
       const aNum = parseFloat(aVal);
       const bNum = parseFloat(bVal);
       if (!isNaN(aNum) && !isNaN(bNum)) {
@@ -48,12 +52,12 @@ export default function TableEditor({ content, onChange, readOnly = false }: Tab
         ? aVal.localeCompare(bVal)
         : bVal.localeCompare(aVal);
     });
-  }, [rows, sortConfig]);
+  }, [indexedRows, sortConfig]);
 
   // Filter rows
   const filteredRows = useMemo(() => {
     if (!filterText) return sortedRows;
-    return sortedRows.filter(row =>
+    return sortedRows.filter(({ row }) =>
       row.some(cell => cell.toLowerCase().includes(filterText.toLowerCase()))
     );
   }, [sortedRows, filterText]);
@@ -121,7 +125,7 @@ export default function TableEditor({ content, onChange, readOnly = false }: Tab
   const exportCSV = () => {
     const csv = [
       headers.join(','),
-      ...filteredRows.map(row => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
+      ...filteredRows.map(({ row }) => row.map(cell => `"${cell.replace(/"/g, '""')}"`).join(','))
     ].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -193,22 +197,27 @@ export default function TableEditor({ content, onChange, readOnly = false }: Tab
             </tr>
           </thead>
           <tbody>
-            {filteredRows.map((row, rowIdx) => (
-              <tr key={rowIdx} className="border-t border-border/30 hover:bg-muted/30">
+            {filteredRows.map(({ row, origIndex }) => (
+              <tr key={origIndex} className="border-t border-border/30 hover:bg-muted/30 group">
                 {row.map((cell, colIdx) => (
                   <td
                     key={colIdx}
-                    onClick={() => !readOnly && setEditCell({ row: rowIdx, col: colIdx })}
+                    onClick={() => {
+                      if (!readOnly) {
+                        setEditCell({ row: origIndex, col: colIdx });
+                        setEditValue(cell);
+                      }
+                    }}
                     className="px-3 py-2 text-foreground/80 cursor-pointer"
                   >
-                    {editCell?.row === rowIdx && editCell?.col === colIdx ? (
+                    {editCell?.row === origIndex && editCell?.col === colIdx ? (
                       <input
                         autoFocus
                         value={editValue}
                         onChange={(e) => setEditValue(e.target.value)}
-                        onBlur={() => handleCellEdit(rowIdx, colIdx, editValue)}
+                        onBlur={() => handleCellEdit(origIndex, colIdx, editValue)}
                         onKeyDown={(e) => {
-                          if (e.key === 'Enter') handleCellEdit(rowIdx, colIdx, editValue);
+                          if (e.key === 'Enter') handleCellEdit(origIndex, colIdx, editValue);
                           if (e.key === 'Escape') setEditCell(null);
                         }}
                         className="w-full bg-background border border-primary rounded px-1 py-0.5 text-sm outline-none"
@@ -221,7 +230,7 @@ export default function TableEditor({ content, onChange, readOnly = false }: Tab
                 {!readOnly && (
                   <td className="px-2 py-2">
                     <button
-                      onClick={() => deleteRow(rowIdx)}
+                      onClick={() => deleteRow(origIndex)}
                       className="p-1 text-muted-foreground hover:text-destructive transition-colors opacity-0 group-hover:opacity-100"
                     >
                       <Trash2 size={12} />

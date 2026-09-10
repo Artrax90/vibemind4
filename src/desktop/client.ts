@@ -5,7 +5,7 @@ let lastTokenFetch = 0;
 const TOKEN_EXPIRY = 1000 * 60 * 60; // 1 hour
 
 export const getAuthHeaders = () => {
-  const token = localStorage.getItem('access_token');
+  const token = localStorage.getItem('access_token') || cachedToken;
   return token ? { 'Authorization': `Bearer ${token}` } : {};
 };
 
@@ -66,19 +66,24 @@ export const api = {
   },
   
   async deleteFolder(id: string) {
+    await dbApi.deleteFolder(id);
     const baseUrl = await this.getNormalizedUrl();
     const token = await this.getServerToken();
     if (token && baseUrl) {
       try {
-        await fetch(`${baseUrl}/api/folders/${id}`, {
+        const res = await fetch(`${baseUrl}/api/folders/${id}`, {
           method: 'DELETE',
           headers: { 'Authorization': `Bearer ${token}` }
         });
+        if (res.ok || res.status === 404) {
+          if (dbApi.removeDeletedItem) {
+            await dbApi.removeDeletedItem(id);
+          }
+        }
       } catch (e) {
         console.error('Failed to delete folder on server', e);
       }
     }
-    await dbApi.deleteFolder(id);
   },
   
   async updateFolder(id: string, updates: any) {
@@ -140,6 +145,9 @@ export const api = {
       const { access_token } = await loginRes.json();
       cachedToken = access_token;
       lastTokenFetch = Date.now();
+      try {
+        localStorage.setItem('access_token', access_token);
+      } catch (e) {}
       return access_token;
     } catch (e) {
       return null;
@@ -319,7 +327,7 @@ ${context}
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({ message, unlockedFolderIds })
       });
       if (!res.ok) throw new Error('API Error');
       return await res.json();
@@ -611,9 +619,16 @@ ${context}
             if (res.ok) {
               const serverReminders = await res.json();
               if (Array.isArray(serverReminders)) {
+                const deletedItems = dbApi.getDeletedItems ? await dbApi.getDeletedItems() : [];
+                const deletedReminderIds = new Set(
+                  (deletedItems || []).filter((item: any) => item.type === 'reminder').map((item: any) => item.id)
+                );
                 // Merge: server reminders take precedence, deduplicate by ID
                 const merged = [...localReminders];
                 for (const sr of serverReminders) {
+                  if (deletedReminderIds.has(sr.id)) {
+                    continue; // Skip resurrecting locally deleted reminder awaiting sync
+                  }
                   const existingIdx = merged.findIndex((r: any) => r.id === sr.id);
                   if (existingIdx >= 0) {
                     merged[existingIdx] = sr;
@@ -704,10 +719,15 @@ ${context}
         const token = await this.getServerToken();
         if (token) {
           const url = await this.getNormalizedUrl();
-          await fetch(`${url}/api/reminders/${id}`, {
+          const res = await fetch(`${url}/api/reminders/${id}`, {
             method: 'DELETE',
             headers: { 'Authorization': `Bearer ${token}` }
           });
+          if (res.ok || res.status === 404) {
+            if (dbApi.removeDeletedItem) {
+              await dbApi.removeDeletedItem(id);
+            }
+          }
         }
       }
     } catch (e) {
@@ -742,6 +762,51 @@ ${context}
     return await res.json();
   },
 
+  async getCalendarEvents(timeMin?: string, timeMax?: string): Promise<any[]> {
+    try {
+      const config = await dbApi.getSyncConfig();
+      if (!config.server_url) return [];
+      const token = await this.getServerToken();
+      if (!token) return [];
+      const url = await this.getNormalizedUrl();
+      let queryUrl = `${url}/api/calendar/events`;
+      const params = new URLSearchParams();
+      if (timeMin) params.append('time_min', timeMin);
+      if (timeMax) params.append('time_max', timeMax);
+      if (params.toString()) queryUrl += `?${params.toString()}`;
+      const res = await fetch(queryUrl, { headers: { 'Authorization': `Bearer ${token}` } });
+      if (!res.ok) return [];
+      return await res.json();
+    } catch (e) {
+      console.error('getCalendarEvents error:', e);
+      return [];
+    }
+  },
+
+  async createCalendarEvent(data: { summary: string; description?: string; start_datetime: string; end_datetime: string }): Promise<any> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) throw new Error('Server not configured');
+    const token = await this.getServerToken();
+    if (!token) throw new Error('Not authenticated');
+    const url = await this.getNormalizedUrl();
+    const res = await fetch(`${url}/api/calendar/events`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify(data)
+    });
+    if (!res.ok) throw new Error('Failed to create calendar event');
+    return await res.json();
+  },
+
+  async deleteCalendarEvent(eventId: string): Promise<void> {
+    const config = await dbApi.getSyncConfig();
+    if (!config.server_url) return;
+    const token = await this.getServerToken();
+    if (!token) return;
+    const url = await this.getNormalizedUrl();
+    await fetch(`${url}/api/calendar/events/${eventId}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+  },
+
   async disconnectCalendar(): Promise<void> {
     const config = await dbApi.getSyncConfig();
     if (!config.server_url) return;
@@ -757,9 +822,10 @@ ${context}
     const token = await this.getServerToken();
     if (!token) return [];
     const url = await this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/external-dbs`, { headers: { 'Authorization': `Bearer ${token}` } });
+    const res = await fetch(`${url}/api/external-db`, { headers: { 'Authorization': `Bearer ${token}` } });
     if (!res.ok) return [];
-    return await res.json();
+    const data = await res.json();
+    return data.dbs || [];
   },
 
   async addExternalDb(dbData: any): Promise<any[]> {
@@ -768,13 +834,14 @@ ${context}
     const token = await this.getServerToken();
     if (!token) throw new Error('No token');
     const url = await this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/external-dbs`, {
+    const res = await fetch(`${url}/api/external-db`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(dbData)
     });
     if (!res.ok) throw new Error('Failed to add DB');
-    return await res.json();
+    const data = await res.json();
+    return data.dbs || [];
   },
 
   async deleteExternalDb(dbId: string): Promise<any[]> {
@@ -783,24 +850,26 @@ ${context}
     const token = await this.getServerToken();
     if (!token) throw new Error('No token');
     const url = await this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/external-dbs/${dbId}`, {
+    const res = await fetch(`${url}/api/external-db/${dbId}`, {
       method: 'DELETE',
       headers: { 'Authorization': `Bearer ${token}` }
     });
     if (!res.ok) throw new Error('Failed to delete DB');
-    return await res.json();
+    const data = await res.json();
+    return data.dbs || [];
   },
 
-  async publishNote(noteId: string, expiresHours?: number): Promise<any> {
+  async publishNote(noteId: string, expiresMinutes?: number): Promise<any> {
     const config = await dbApi.getSyncConfig();
     if (!config.server_url || !config.username) throw new Error('Server not configured');
     const token = await this.getServerToken();
     if (!token) throw new Error('Not authenticated');
     const url = await this.getNormalizedUrl();
-    const res = await fetch(`${url}/api/notes/${noteId}/publish`, {
+    const params = expiresMinutes !== undefined ? `?expires_minutes=${expiresMinutes}` : '';
+    const res = await fetch(`${url}/api/notes/${noteId}/publish${params}`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ expires_hours: expiresHours })
+      body: JSON.stringify({ expires_minutes: expiresMinutes })
     });
     if (!res.ok) throw new Error('Failed to publish');
     return await res.json();

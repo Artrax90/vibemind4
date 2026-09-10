@@ -269,10 +269,14 @@ export const dbApi = {
     if (isElectron) return (window as any).electronAPI.deleteReminder(id);
     if (isNative && db) {
       await db.run('DELETE FROM reminders WHERE id = ?', [id]);
+      await db.run('INSERT OR IGNORE INTO deleted_items (id, type) VALUES (?, ?)', [id, 'reminder']);
       return;
     }
     const reminders = await this.getReminders();
     localStorage.setItem('reminders', JSON.stringify(reminders.filter((r: any) => r.id !== id)));
+    const delItems = JSON.parse(localStorage.getItem('deleted_items') || '[]');
+    delItems.push({ id, type: 'reminder' });
+    localStorage.setItem('deleted_items', JSON.stringify(delItems));
   },
 
   async clearData() {

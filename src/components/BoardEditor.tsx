@@ -104,8 +104,8 @@ export default function BoardEditor({ content, title: boardTitle, onChange, onTi
   const [zoom, setZoom] = useState(1);
   const [editId, setEditId] = useState<string | null>(null);
   const [connectFrom, setConnectFrom] = useState<string | null>(null);
-  const [hist, setHist] = useState<BoardData[]>([]);
-  const [histIdx, setHistIdx] = useState(-1);
+  const [hist, setHist] = useState<BoardData[]>(() => [parseBoard(content)]);
+  const [histIdx, setHistIdx] = useState(0);
   const [color, setColor] = useState(PALETTE[0]);
   const [showColors, setShowColors] = useState(false);
   const [showTextFormat, setShowTextFormat] = useState(false);
@@ -143,9 +143,9 @@ export default function BoardEditor({ content, title: boardTitle, onChange, onTi
     setModalType(type);
   };
 
-  const push = (d: BoardData) => { setData(d); setHist(h => [...h.slice(0, histIdx + 1), data]); setHistIdx(i => i + 1); setSaveStatus('saving'); onChange(saveBoard(d, content)); setTimeout(() => setSaveStatus('saved'), 100); setTimeout(() => setSaveStatus('idle'), 2000); };
-  const undo = () => { if (histIdx > 0) { const p = hist[histIdx - 1]; setData(p); setHistIdx(histIdx - 1); onChange(saveBoard(p, content)); } };
-  const redo = () => { if (histIdx < hist.length - 1) { const n = hist[histIdx + 1]; setData(n); setHistIdx(histIdx + 1); onChange(saveBoard(n, content)); } };
+  const push = (d: BoardData) => { setData(d); setHist(h => [...h.slice(0, histIdx + 1), d]); setHistIdx(i => i + 1); setSaveStatus('saving'); onChange(saveBoard(d, contentRef.current)); setTimeout(() => setSaveStatus('saved'), 100); setTimeout(() => setSaveStatus('idle'), 2000); };
+  const undo = () => { if (histIdx > 0) { const p = hist[histIdx - 1]; setData(p); setHistIdx(histIdx - 1); onChange(saveBoard(p, contentRef.current)); } };
+  const redo = () => { if (histIdx < hist.length - 1) { const n = hist[histIdx + 1]; setData(n); setHistIdx(histIdx + 1); onChange(saveBoard(n, contentRef.current)); } };
 
   const getPos = (e: { clientX: number; clientY: number }) => {
     const r = ref.current!.getBoundingClientRect();
@@ -755,9 +755,9 @@ export default function BoardEditor({ content, title: boardTitle, onChange, onTi
         onClose={() => { setModalType(null); setModalComp(null); }}
         {...(modalType === 'share' ? { resourceId: noteId, resourceType: 'note', resourceName: boardTitle || 'Board' } : {})}
         {...(modalType === 'reminder' ? { onConfirm: async (data: any) => { const { api } = await import('../api/client'); await api.createReminder({ note_id: noteId, ...data }); } } : {})}
-        {...(modalType === 'publish' ? { slug: publishSlug, title: boardTitle || 'Board', baseUrl, isPublished, onPublish: async (expiresHours: number) => {
+        {...(modalType === 'publish' ? { slug: publishSlug, title: boardTitle || 'Board', baseUrl, isPublished, onPublish: async (expiresMinutes: number) => {
           const { api } = await import('../api/client');
-          const result = await api.publishNote(noteId!, expiresHours);
+          const result = await api.publishNote(noteId!, expiresMinutes);
           if (result.slug) { setPublishSlug(result.slug); setIsPublished(true); }
         }, onUnpublish: async () => {
           const { api } = await import('../api/client');

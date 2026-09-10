@@ -20,6 +20,7 @@ export default function NotificationsPanel({ onNoteClick }: { onNoteClick: (id: 
   const [reminders, setReminders] = useState<Reminder[]>([]);
   const [loading, setLoading] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
+  const notifiedIdsRef = useRef<Set<string>>(new Set());
 
   // Close on click outside
   useEffect(() => {
@@ -53,9 +54,10 @@ export default function NotificationsPanel({ onNoteClick }: { onNoteClick: (id: 
     const checkBrowserNotifications = () => {
       const now = new Date();
       reminders.forEach(r => {
-        if (r.is_sent) return;
+        if (r.is_sent || notifiedIdsRef.current.has(r.id)) return;
         const remindAt = new Date(r.remind_at);
         if (remindAt <= now) {
+          notifiedIdsRef.current.add(r.id);
           // Browser notification
           if ('Notification' in window && Notification.permission === 'granted') {
             new Notification('🔔 VibeMind', {
@@ -69,7 +71,7 @@ export default function NotificationsPanel({ onNoteClick }: { onNoteClick: (id: 
 
     const interval = setInterval(checkBrowserNotifications, 10000);
     return () => clearInterval(interval);
-  }, [reminders]);
+  }, [reminders, t]);
 
   const loadReminders = async () => {
     setLoading(true);
