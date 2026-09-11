@@ -1027,24 +1027,27 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
     """Parse natural language reminder text into {date, time, message}."""
     now = datetime.now()
     t = text.lower().strip()
-    # Remove trigger words
-    for trigger in ['напомни мне', 'напомни', 'напомнить мне', 'напомнить', 'напоминание', 'remind me', 'remind']:
-        if t.startswith(trigger):
-            t = t[len(trigger):].strip()
-            break
+    
+    # Remove trigger words / prefixes
+    prefix_pattern = r'^(?:(?:поставь|поставьте|создай|создайте|сделай|сделайте|добавь|добавьте|нужно|надо|не забудь|не забудьте)\s+)?(?:мне\s+)?(?:напомн\w*|напомин\w*|remind(?:\s+me)?)\s*(?:мне\s+)?(?:о\s+том\s*,?\s*что\s+|что\s+|про\s+|о\s+|об\s+)?'
+    t = re.sub(prefix_pattern, '', t, flags=re.IGNORECASE).strip()
 
     date = None
     time_str = "09:00"
 
     # --- Parse date ---
+    # "сегодня"
+    if re.search(r'\b(?:на\s+)?сегодня\b', t):
+        date = now.strftime("%Y-%m-%d")
+        t = re.sub(r'\b(?:на\s+)?сегодня\b', '', t).strip()
     # "завтра"
-    if re.search(r'\bзавтра\b', t):
+    elif re.search(r'\b(?:на\s+)?завтра\b', t):
         date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-        t = re.sub(r'\bзавтра\b', '', t).strip()
+        t = re.sub(r'\b(?:на\s+)?завтра\b', '', t).strip()
     # "послезавтра"
-    elif re.search(r'\bпослезавтра\b', t):
+    elif re.search(r'\b(?:на\s+)?послезавтра\b', t):
         date = (now + timedelta(days=2)).strftime("%Y-%m-%d")
-        t = re.sub(r'\bпослезавтра\b', '', t).strip()
+        t = re.sub(r'\b(?:на\s+)?послезавтра\b', '', t).strip()
     # "через минуту/час" (без числа = 1) или "через N часов/минут"
     elif re.search(r'\bчерез\s+(одну|один|одно)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t) or re.search(r'\bчерез\s+(\d+)\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t):
         m = re.search(r'\bчерез\s+(одну|один|одно)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t)
@@ -1117,13 +1120,9 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
         t = t[:m.start()] + t[m.end():]
         t = t.strip()
 
-    if not date:
-        # Default: tomorrow
-        date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
-
     # --- Parse time ---
     # "в HH:MM" or "HH:MM" — with colon or dot
-    time_match = re.search(r'(?:в\s+)?(\d{1,2})[:\.](\d{1,2})\b', t)
+    time_match = re.search(r'(?:^|\s)(?:в\s+)?(\d{1,2})[:\.](\d{1,2})\b', t)
     if time_match:
         h = max(0, min(23, int(time_match.group(1))))
         m_val = max(0, min(59, int(time_match.group(2))))
@@ -1177,13 +1176,23 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
                         time_str = "00:00"
                         t = re.sub(r'\bночью\b', '', t).strip()
 
-    # Clean message
-    t = re.sub(r'\bнапомни\b', '', t).strip()
+    if not date:
+        # If specified time is later today, set to today; otherwise tomorrow
+        now_hm = now.strftime("%H:%M")
+        if time_str > now_hm:
+            date = now.strftime("%Y-%m-%d")
+        else:
+            date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    # Clean message text
+    t = re.sub(r'^(?:поставь|поставьте|создай|создайте|сделай|сделайте|добавь|добавьте)\b', '', t).strip()
+    t = re.sub(r'\bнапомн\w*\b', '', t).strip()
+    t = re.sub(r'\bнапомин\w*\b', '', t).strip()
     t = re.sub(r'\bмне\b', '', t).strip()
+    t = re.sub(r'^(?:на\s+|в\s+|что\s+|про\s+|о\s+|об\s+)', '', t).strip()
     t = re.sub(r'\bпро\b', '', t).strip()
-    t = re.sub(r'^в\s+', '', t).strip()
-    t = re.sub(r'^[,.\s]+', '', t).strip()
-    # Remove orphan single letters from Vosk artifacts (e.g. "м купить хлеб" → "купить хлеб")
+    t = re.sub(r'^[,.\s]+|[.,\s]+$', '', t).strip()
+    # Remove orphan single letters from STT artifacts (e.g. "м купить хлеб" → "купить хлеб")
     t = re.sub(r'^[а-яё]\s+', '', t).strip()
 
     if not t:
@@ -1305,8 +1314,8 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
 
     # --- Check for reminder intent FIRST ---
     text_lower = message.text.lower().strip()
-    reminder_triggers = ['напомни', 'напомнить', 'напоминание', 'напомни мне', 'напомнить мне', 'remind me', 'remind']
-    if any(text_lower.startswith(t) for t in reminder_triggers):
+    reminder_pattern = r'^(?:(?:поставь|поставьте|создай|создайте|сделай|сделайте|добавь|добавьте|нужно|надо|не забудь|не забудьте)\s+)?(?:мне\s+)?(?:напомн\w*|напомин\w*|remind(?:\s+me)?)\b'
+    if re.search(reminder_pattern, text_lower):
         parsed = parse_reminder(message.text)
         if parsed:
             result = await create_reminder_api(user_id, parsed)
@@ -1322,16 +1331,45 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
             return
 
     # --- Check for calendar intent ---
-    calendar_triggers = {
-        'сегодня': ['что сегодня', 'на сегодня', 'календарь сегодня', 'сегодня', 'что запланировано на сегодня', 'что planned на сегодня', 'какие планы на сегодня', 'планы на сегодня'],
-        'завтра': ['что завтра', 'на завтра', 'календарь завтра', 'завтра', 'что запланировано на завтра', 'какие планы на завтра', 'планы на завтра'],
-        'неделя': ['на неделе', 'календарь на неделю', 'что на неделе', 'неделя', 'планы на неделю', 'какие планы на неделю', 'планы на этой неделе'],
-        'месяц': ['на месяце', 'календарь на месяц', 'что на месяце', 'месяц', 'планы на месяц', 'какие планы на месяц'],
+    clean_query = re.sub(r'^[?,.!\s]+|[?,.!\s]+$', '', text_lower)
+    calendar_exact = {
+        'сегодня': ['сегодня', 'на сегодня', 'что сегодня', 'планы на сегодня', 'какие планы на сегодня', 'что запланировано на сегодня', 'календарь на сегодня', 'календарь сегодня', 'дела на сегодня'],
+        'завтра': ['завтра', 'на завтра', 'что завтра', 'планы на завтра', 'какие планы на завтра', 'что запланировано на завтра', 'календарь на завтра', 'календарь завтра', 'дела на завтра'],
+        'неделя': ['неделя', 'на неделю', 'на этой неделе', 'что на неделю', 'что на неделе', 'планы на неделю', 'планы на эту неделю', 'какие планы на неделю', 'календарь на неделю', 'дела на неделю'],
+        'месяц': ['месяц', 'на месяц', 'на этот месяц', 'что на месяц', 'планы на месяц', 'какие планы на месяц', 'календарь на месяц', 'дела на месяц'],
     }
-    for sub_key, triggers in calendar_triggers.items():
-        if any(t in text_lower for t in triggers):
-            await _show_calendar(message, user_id, sub_key)
-            return
+    matched_calendar_sub = None
+    for sub_key, triggers in calendar_exact.items():
+        if clean_query in triggers:
+            matched_calendar_sub = sub_key
+            break
+
+    if not matched_calendar_sub:
+        calendar_patterns = [
+            (r'^(?:календарь|расписание)\s+(сегодня|завтра|недел\w*|месяц\w*)', {
+                'сегодня': 'сегодня', 'завтра': 'завтра', 'недел': 'неделя', 'месяц': 'месяц'
+            }),
+            (r'^(?:что|какие)\s+(?:у\s+нас\s+)?(?:планы|дела|запланировано)\s+(?:на\s+)?(сегодня|завтра|недел\w*|месяц\w*)', {
+                'сегодня': 'сегодня', 'завтра': 'завтра', 'недел': 'неделя', 'месяц': 'месяц'
+            }),
+            (r'^(?:планы|дела)\s+(?:на\s+)?(сегодня|завтра|недел\w*|месяц\w*)', {
+                'сегодня': 'сегодня', 'завтра': 'завтра', 'недел': 'неделя', 'месяц': 'месяц'
+            }),
+        ]
+        for pat, period_map in calendar_patterns:
+            m = re.search(pat, clean_query)
+            if m:
+                word = m.group(1)
+                for k, p in period_map.items():
+                    if word.startswith(k):
+                        matched_calendar_sub = p
+                        break
+                if matched_calendar_sub:
+                    break
+
+    if matched_calendar_sub:
+        await _show_calendar(message, user_id, matched_calendar_sub)
+        return
 
     chat_id = str(message.chat.id)
     if chat_id in awaiting_passwords:
