@@ -12,13 +12,13 @@ import ReminderModal from './components/ReminderModal';
 import SharedNoteView from './components/SharedNoteView';
 import Login from './pages/Login';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, Layout, MessageSquare, PanelLeftOpen, ChevronLeft, ChevronRight, Bell, Plus } from 'lucide-react';
+import { Network, Edit3, Eye, Search, X, Menu, Maximize2, Minimize2, Sun, Moon, AlertTriangle, Lock, Sparkles, BarChart3, Calendar, Hash, FileText, LayoutGrid, Layout, MessageSquare, PanelLeftOpen, ChevronLeft, ChevronRight, Bell, Plus, Repeat, Trash2 } from 'lucide-react';
 
 const BoardEditor = React.lazy(() => import('./components/BoardEditor'));
 import { useLanguage } from './contexts/LanguageContext';
 import { Note, Folder } from './types';
 import { api } from './api/client';
-import { isReminderOnDate } from './lib/utils';
+import { isReminderOnDate, getRepeatLabel } from './lib/utils';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean, error: any }> {
   constructor(props: { children: ReactNode }) {
@@ -606,70 +606,196 @@ export default function App() {
                     const isToday = today.getDate() === day && today.getMonth() === calMonth && today.getFullYear() === calYear;
                     const isRightCol = (i % 7) >= 4;
                     return (
-                      <div key={i} className="relative">
-                        <div onClick={(e) => { e.stopPropagation(); setExpandedDay(expanded ? null : dateStr); }}
-                          className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-2 ring-primary/40 bg-primary/5 font-semibold' : uniqueDayReminders.length > 0 ? 'border-violet-500/40 bg-violet-500/10 ring-1 ring-violet-500/20 dark:bg-violet-950/30 dark:border-violet-400/30' : allItems.length > 0 ? 'border-border/60 bg-muted/20' : 'border-border/30 hover:border-border/60'} ${expanded ? 'shadow-lg ring-1 ring-primary/30' : ''}`}>
-                          <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
-                          {allItems.slice(0, 2).map(item => (
-                            <div key={item.type + item.id} className="text-xs truncate text-foreground/80 flex items-center gap-1">
-                              {item.type === 'reminder' && <Bell size={8} className="text-amber-500 shrink-0" />}
-                              {item.title}
-                            </div>
-                          ))}
-                          {!expanded && allItems.length > 2 && (
-                            <div className="text-xs text-primary font-medium mt-0.5">+{allItems.length - 2}</div>
-                          )}
-                        </div>
-                        <AnimatePresence>
-                          {expanded && (
-                            <motion.div
-                              initial={{ opacity: 0, y: -4, scale: 0.95 }}
-                              animate={{ opacity: 1, y: 4, scale: 1 }}
-                              exit={{ opacity: 0, y: -4, scale: 0.95 }}
-                              transition={{ duration: 0.15, ease: 'easeOut' }}
-                              className={`absolute ${isRightCol ? 'right-0' : 'left-0'} top-full mt-1 z-50 w-72 max-w-[90vw] bg-background/95 backdrop-blur border border-border/60 rounded-xl shadow-2xl p-3 space-y-1.5`}
-                              style={{ transformOrigin: isRightCol ? 'top right' : 'top left' }}
-                              onClick={(e) => e.stopPropagation()}
+                      <div
+                        key={i}
+                        onClick={(e) => { e.stopPropagation(); setExpandedDay(dateStr); }}
+                        className={`rounded-xl border p-2.5 min-h-[88px] transition-all duration-200 cursor-pointer hover:shadow-md relative group flex flex-col justify-between ${isToday ? 'border-primary ring-2 ring-primary/40 bg-primary/5 font-semibold' : uniqueDayReminders.length > 0 ? 'border-violet-500/50 bg-violet-500/10 ring-1 ring-violet-500/30 dark:bg-violet-950/30 dark:border-violet-400/30' : allItems.length > 0 ? 'border-border/60 bg-muted/20' : 'border-border/30 hover:border-border/60'}`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <span className={`text-xs font-semibold ${isToday ? 'w-5 h-5 rounded-full bg-primary text-primary-foreground flex items-center justify-center -ml-0.5 -mt-0.5 text-[11px] shadow-sm' : 'text-muted-foreground'}`}>{day}</span>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setCalReminderDate(dateStr);
+                                setShowCalendarReminder(true);
+                              }}
+                              className="opacity-0 group-hover:opacity-100 p-0.5 rounded-md text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                              title="Добавить напоминание"
                             >
-                              <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-border/40">
-                                <div className="text-xs font-semibold text-foreground truncate">{day} — {allItems.length} {allItems.length === 1 ? 'элемент' : allItems.length > 4 ? 'элементов' : 'элемента'}</div>
-                                <button onClick={(e) => { e.stopPropagation(); setCalReminderDate(dateStr); setShowCalendarReminder(true); setExpandedDay(null); }}
-                                  className="flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 font-medium transition-colors shrink-0 bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded-md">
-                                  <Plus size={12} /> Напоминание
-                                </button>
+                              <Plus size={13} />
+                            </button>
+                          </div>
+                          <div className="space-y-1">
+                            {allItems.slice(0, 2).map(item => (
+                              <div
+                                key={item.type + item.id}
+                                className={`text-[11px] truncate rounded-md px-1.5 py-0.5 flex items-center gap-1 font-medium ${item.type === 'reminder' ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400' : 'bg-primary/10 text-primary'}`}
+                              >
+                                {item.type === 'reminder' ? <Bell size={10} className="shrink-0" /> : <FileText size={10} className="shrink-0" />}
+                                <span className="truncate">{item.title}</span>
                               </div>
-                              {allItems.map(item => (
-                                <div key={item.type + item.id}
-                                  className="text-sm text-foreground/80 hover:bg-muted/50 rounded-lg px-2 py-1.5 transition-colors flex items-center gap-2 group/item">
-                                  <div className="flex-1 min-w-0 cursor-pointer flex items-center gap-2 truncate" onClick={() => { handleNoteSelect(item.type === 'reminder' ? item.noteId : item.id); setViewMode('preview'); setExpandedDay(null); }}>
-                                    {item.type === 'reminder' && <><Bell size={12} className="text-amber-500 shrink-0" /><span className="text-[10px] text-amber-500 shrink-0">{(item.time || '').slice(11, 16)}</span></>}
-                                    <span className="truncate">{item.title}</span>
-                                  </div>
-                                  {item.type === 'reminder' && (
-                                    <button onClick={(e) => {
-                                      e.stopPropagation();
-                                      const reminder = reminders.find((r: any) => r.id === item.id);
-                                      if (reminder) { setEditingReminder(reminder); setShowCalendarReminder(true); setExpandedDay(null); }
-                                    }} className="opacity-0 group-hover/item:opacity-100 p-0.5 text-muted-foreground hover:text-foreground transition-all shrink-0">
-                                      <Edit3 size={12} />
-                                    </button>
-                                  )}
-                                  <button onClick={(e) => {
-                                    e.stopPropagation();
-                                    setDeletingItem({ type: item.type, id: item.id, title: item.title });
-                                  }} className="opacity-0 group-hover/item:opacity-100 p-0.5 text-muted-foreground hover:text-red-500 transition-all shrink-0">
-                                    <X size={12} />
-                                  </button>
-                                </div>
-                              ))}
-                            </motion.div>
-                          )}
-                        </AnimatePresence>
+                            ))}
+                          </div>
+                        </div>
+                        {allItems.length > 2 && (
+                          <div className="text-[10px] text-muted-foreground font-semibold mt-1">+{allItems.length - 2} ещё</div>
+                        )}
                       </div>
                     );
                   });
                 })()}
               </div>
+
+              {/* Dedicated Day Details Modal */}
+              <AnimatePresence>
+                {expandedDay && (() => {
+                  const [eYear, eMonth, eDay] = expandedDay.split('-').map(Number);
+                  const dayDate = new Date(eYear, eMonth - 1, eDay);
+                  const dayName = dayDate.toLocaleDateString('ru-RU', { weekday: 'long' });
+                  const formattedDate = dayDate.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+                  
+                  const dayNotes = notes.filter(n => (n.created_at || '').startsWith(expandedDay) || (n.updated_at || '').startsWith(expandedDay));
+                  const dayReminders = reminders.filter(r => isReminderOnDate(r, expandedDay));
+                  const seenReminderKeys = new Set<string>();
+                  const uniqueDayReminders = dayReminders.filter(r => {
+                    const key = `${r.note_id || ''}:${r.message || ''}:${r.repeat_type || 'none'}`;
+                    if (seenReminderKeys.has(key)) return false;
+                    seenReminderKeys.add(key);
+                    return true;
+                  });
+                  
+                  return (
+                    <div className="fixed inset-0 z-[65] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={() => setExpandedDay(null)}>
+                      <motion.div
+                        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                        transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                        className="w-full max-w-md bg-card border border-border/60 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <div className="px-5 py-4 border-b border-border/50 flex items-center justify-between bg-muted/20">
+                          <div>
+                            <div className="text-xs font-semibold text-primary capitalize">{dayName}</div>
+                            <h3 className="text-lg font-bold text-foreground font-serif">{formattedDate}</h3>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => {
+                                setCalReminderDate(expandedDay);
+                                setShowCalendarReminder(true);
+                                setExpandedDay(null);
+                              }}
+                              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-xs font-semibold shadow-sm hover:shadow-md hover:bg-primary/90 transition-all"
+                            >
+                              <Plus size={14} /> Напоминание
+                            </button>
+                            <button
+                              onClick={() => setExpandedDay(null)}
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                            >
+                              <X size={18} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="p-4 overflow-y-auto space-y-2.5 flex-1 scroll-elegant">
+                          {uniqueDayReminders.length === 0 && dayNotes.length === 0 ? (
+                            <div className="py-8 text-center flex flex-col items-center justify-center text-muted-foreground">
+                              <Calendar size={36} className="text-muted-foreground/30 mb-2 stroke-[1.5]" />
+                              <p className="text-sm font-medium">Нет запланированных событий</p>
+                              <p className="text-xs text-muted-foreground/70 mt-0.5">Нажмите «Напоминание», чтобы добавить событие на этот день</p>
+                            </div>
+                          ) : (
+                            <>
+                              {uniqueDayReminders.length > 0 && (
+                                <div className="space-y-1.5">
+                                  <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 px-1">Напоминания</div>
+                                  {uniqueDayReminders.map(r => {
+                                    const repeatLabel = getRepeatLabel(r.repeat_type || r.repeatType);
+                                    const timeStr = (r.remind_at || r.remindAt || '').slice(11, 16);
+                                    const title = r.message || notes.find(n => n.id === (r.note_id || r.noteId))?.title || 'Напоминание';
+                                    return (
+                                      <div key={r.id} className="group p-3 rounded-xl bg-muted/40 border border-border/40 hover:border-violet-500/40 hover:bg-muted/60 transition-all flex items-start justify-between gap-3">
+                                        <div className="flex items-start gap-2.5 min-w-0 flex-1">
+                                          <div className="w-8 h-8 rounded-lg bg-amber-500/15 flex items-center justify-center text-amber-500 shrink-0 mt-0.5">
+                                            <Bell size={16} />
+                                          </div>
+                                          <div className="min-w-0 flex-1">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                              {timeStr && (
+                                                <span className="text-xs font-mono font-bold text-foreground bg-background/80 px-1.5 py-0.5 rounded border border-border/50">
+                                                  {timeStr}
+                                                </span>
+                                              )}
+                                              {repeatLabel && (
+                                                <span className="text-[10px] font-medium text-violet-500 bg-violet-500/10 px-1.5 py-0.5 rounded border border-violet-500/20 flex items-center gap-1">
+                                                  <Repeat size={10} /> {repeatLabel}
+                                                </span>
+                                              )}
+                                            </div>
+                                            <p className="text-sm font-medium text-foreground mt-1 break-words">{title}</p>
+                                          </div>
+                                        </div>
+                                        <div className="flex items-center gap-1 shrink-0 opacity-80 group-hover:opacity-100 transition-opacity">
+                                          <button
+                                            onClick={() => {
+                                              setEditingReminder(r);
+                                              setShowCalendarReminder(true);
+                                              setExpandedDay(null);
+                                            }}
+                                            className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                                            title="Редактировать"
+                                          >
+                                            <Edit3 size={14} />
+                                          </button>
+                                          <button
+                                            onClick={() => {
+                                              setDeletingItem({ type: 'reminder', id: r.id, title });
+                                            }}
+                                            className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                            title="Удалить"
+                                          >
+                                            <Trash2 size={14} />
+                                          </button>
+                                        </div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              )}
+
+                              {dayNotes.length > 0 && (
+                                <div className="space-y-1.5 pt-2">
+                                  <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground/70 px-1">Заметки</div>
+                                  {dayNotes.map(n => (
+                                    <div
+                                      key={n.id}
+                                      onClick={() => {
+                                        handleNoteSelect(n.id);
+                                        setViewMode('preview');
+                                        setExpandedDay(null);
+                                      }}
+                                      className="p-2.5 rounded-xl bg-muted/30 border border-border/40 hover:border-primary/40 hover:bg-muted/60 transition-all cursor-pointer flex items-center justify-between gap-2"
+                                    >
+                                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                                        <FileText size={15} className="text-primary shrink-0" />
+                                        <span className="text-sm font-medium text-foreground truncate">{n.title || 'Без названия'}</span>
+                                      </div>
+                                      <ChevronRight size={14} className="text-muted-foreground/50 shrink-0" />
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </motion.div>
+                    </div>
+                  );
+                })()}
+              </AnimatePresence>
             </motion.div>
           ) : viewMode === 'board' && activeNote ? (
               <motion.div

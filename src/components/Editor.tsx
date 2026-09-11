@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from '../api/client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell, CalendarPlus, Check } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell, CalendarPlus, Check, Strikethrough, Highlighter, Underline, Quote, ChevronDown, Superscript, Subscript, EyeOff } from 'lucide-react';
 import ReminderModal from './ReminderModal';
 import PublishModal from './PublishModal';
 import ReactMarkdown from 'react-markdown';
@@ -47,6 +47,11 @@ function MermaidDiagram({ code }: { code: string }) {
 function renderContentBase(text: string): string {
   let parsed = text.replace(/\[\[(.*?)\]\]/g, '<span class="wikilink text-primary cursor-pointer hover:underline" data-title="$1">$1</span>');
   parsed = parsed.replace(/(^|\s)#([^\s#]+)/g, '$1<span class="tag text-primary bg-primary/10 px-1.5 py-0.5 rounded text-sm cursor-pointer hover:bg-primary/20" data-tag="$2">#$2</span>');
+  parsed = parsed.replace(/==([^=\n]+)==/g, '<mark class="bg-amber-200 dark:bg-amber-900/60 text-foreground px-1 py-0.5 rounded">$1</mark>');
+  parsed = parsed.replace(/<u>(.*?)<\/u>/gi, '<u class="underline underline-offset-2">$1</u>');
+  parsed = parsed.replace(/<sup>(.*?)<\/sup>/gi, '<sup>$1</sup>');
+  parsed = parsed.replace(/<sub>(.*?)<\/sub>/gi, '<sub>$1</sub>');
+  parsed = parsed.replace(/\|\|(.*?)\|\|/g, '<span class="bg-muted hover:bg-transparent text-transparent hover:text-foreground transition-all duration-200 rounded px-1.5 py-0.5 cursor-pointer select-none" title="Спойлер">$1</span>');
   return parsed;
 }
 
@@ -110,12 +115,31 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
   const [publishSlug, setPublishSlug] = useState<string | null>(null);
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [showCodeDropdown, setShowCodeDropdown] = useState(false);
+  const [showFormatDropdown, setShowFormatDropdown] = useState(false);
+  const formatDropdownRef = useRef<HTMLDivElement>(null);
+  const codeDropdownRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const [showAutocomplete, setShowAutocomplete] = useState(false);
   const [autocompleteQuery, setAutocompleteQuery] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const isReadOnly = isPreview || (note && note.permission === 'read');
+
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (formatDropdownRef.current && !formatDropdownRef.current.contains(target)) {
+        setShowFormatDropdown(false);
+      }
+      if (codeDropdownRef.current && !codeDropdownRef.current.contains(target)) {
+        setShowCodeDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, []);
 
   useEffect(() => {
     setContent(note?.content || '');
@@ -272,7 +296,9 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
     
     setTimeout(() => {
       if (textareaRef.current) {
-        const newPos = start + prefix.length + selection.length + suffix.length;
+        const newPos = selection.length === 0
+          ? start + prefix.length
+          : start + prefix.length + selection.length + suffix.length;
         textareaRef.current.setSelectionRange(newPos, newPos);
         textareaRef.current.focus();
       }
@@ -485,6 +511,104 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
         <div className="pl-16 pr-4 md:px-8 py-2 flex items-center space-x-1 border-b border-border/30 bg-muted/30 flex-wrap gap-y-2">
           <button onClick={insertBold} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors" title={t('editor.bold')}><Bold size={16} /></button>
           <button onClick={insertItalic} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors" title={t('editor.italic')}><Italic size={16} /></button>
+
+          {/* Format Dropdown: Strikethrough, Highlight, Underline, Code, Quote, Spoiler, etc. */}
+          <div className="relative" ref={formatDropdownRef}>
+            <button
+              onClick={() => setShowFormatDropdown(!showFormatDropdown)}
+              className={`p-1.5 rounded-lg hover:bg-accent flex items-center gap-0.5 transition-colors ${showFormatDropdown ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-accent-foreground'}`}
+              title={t('editor.format')}
+            >
+              <Strikethrough size={16} />
+              <ChevronDown size={11} className={`transition-transform duration-200 ${showFormatDropdown ? 'rotate-180' : ''}`} />
+            </button>
+
+            {showFormatDropdown && (
+              <div className="absolute left-0 top-full mt-1 z-50 bg-popover border border-border rounded-xl shadow-2xl p-1.5 min-w-[205px]">
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase px-2 py-1 tracking-wider">
+                  {t('editor.format')}
+                </div>
+                <button
+                  onClick={() => { insertMarkdown('~~', '~~'); setShowFormatDropdown(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent rounded-lg text-foreground flex items-center justify-between group transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Strikethrough size={14} className="text-muted-foreground group-hover:text-primary" />
+                    <span className="line-through">{t('editor.strikethrough')}</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">~~текст~~</span>
+                </button>
+                <button
+                  onClick={() => { insertMarkdown('==', '=='); setShowFormatDropdown(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent rounded-lg text-foreground flex items-center justify-between group transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Highlighter size={14} className="text-amber-500" />
+                    <span>{t('editor.highlight')}</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">==текст==</span>
+                </button>
+                <button
+                  onClick={() => { insertMarkdown('<u>', '</u>'); setShowFormatDropdown(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent rounded-lg text-foreground flex items-center justify-between group transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Underline size={14} className="text-muted-foreground group-hover:text-primary" />
+                    <span className="underline underline-offset-2">{t('editor.underline')}</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">&lt;u&gt;текст&lt;/u&gt;</span>
+                </button>
+                <button
+                  onClick={() => { insertMarkdown('`', '`'); setShowFormatDropdown(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent rounded-lg text-foreground flex items-center justify-between group transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Code size={14} className="text-muted-foreground group-hover:text-primary" />
+                    <span>{t('editor.inlineCode')}</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">`код`</span>
+                </button>
+                <button
+                  onClick={() => { insertMarkdown('> '); setShowFormatDropdown(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent rounded-lg text-foreground flex items-center justify-between group transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <Quote size={14} className="text-muted-foreground group-hover:text-primary" />
+                    <span className="italic">{t('editor.quote')}</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">&gt; текст</span>
+                </button>
+                <button
+                  onClick={() => { insertMarkdown('||', '||'); setShowFormatDropdown(false); }}
+                  className="w-full text-left px-2.5 py-1.5 text-xs hover:bg-accent rounded-lg text-foreground flex items-center justify-between group transition-colors"
+                >
+                  <span className="flex items-center gap-2">
+                    <EyeOff size={14} className="text-muted-foreground group-hover:text-primary" />
+                    <span>{t('editor.spoiler')}</span>
+                  </span>
+                  <span className="text-[10px] text-muted-foreground font-mono bg-muted/60 px-1 py-0.5 rounded">||текст||</span>
+                </button>
+                <div className="h-px bg-border/50 my-1"></div>
+                <div className="grid grid-cols-2 gap-1">
+                  <button
+                    onClick={() => { insertMarkdown('<sup>', '</sup>'); setShowFormatDropdown(false); }}
+                    className="text-left px-2 py-1 text-xs hover:bg-accent rounded-lg text-foreground flex items-center gap-1.5 group transition-colors"
+                  >
+                    <Superscript size={13} className="text-muted-foreground group-hover:text-primary" />
+                    <span>{t('editor.superscript')}</span>
+                  </button>
+                  <button
+                    onClick={() => { insertMarkdown('<sub>', '</sub>'); setShowFormatDropdown(false); }}
+                    className="text-left px-2 py-1 text-xs hover:bg-accent rounded-lg text-foreground flex items-center gap-1.5 group transition-colors"
+                  >
+                    <Subscript size={13} className="text-muted-foreground group-hover:text-primary" />
+                    <span>{t('editor.subscript')}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
           <button onClick={insertLink} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors" title={t('editor.link')}><Link size={16} /></button>
 
           <div className="relative">
@@ -510,7 +634,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
 
           <button onClick={insertList} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground hover:text-accent-foreground transition-colors" title={t('editor.list')}><List size={16} /></button>
 
-          <div className="relative">
+          <div className="relative" ref={codeDropdownRef}>
             <button
               onClick={() => setShowCodeDropdown(!showCodeDropdown)}
               className={`p-1.5 rounded-lg hover:bg-accent transition-colors ${showCodeDropdown ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:text-accent-foreground'}`}
@@ -609,6 +733,9 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
                   },
                   blockquote({children}) {
                     return <blockquote className="border-l-2 border-primary/30 pl-4 italic text-muted-foreground my-4">{children}</blockquote>;
+                  },
+                  del({children}) {
+                    return <del className="line-through text-muted-foreground">{children}</del>;
                   },
                   ol({children}) {
                     return <ol className="list-decimal list-inside my-4 space-y-1.5 text-foreground/80">{children}</ol>;
