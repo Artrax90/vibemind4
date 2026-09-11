@@ -1,0 +1,12 @@
+﻿node_modules
+dist
+dist-electron
+.git
+.agents
+storage
+vosk-model
+*.sqlite
+*.sqlite3
+*.db
+build_error.txt
+build_output.txt
