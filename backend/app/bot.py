@@ -1029,8 +1029,9 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
     t = text.lower().strip()
     
     # Remove trigger words / prefixes
-    prefix_pattern = r'^(?:(?:поставь|поставьте|создай|создайте|сделай|сделайте|добавь|добавьте|нужно|надо|не забудь|не забудьте)\s+)?(?:мне\s+)?(?:напомн\w*|напомин\w*|remind(?:\s+me)?)\s*(?:мне\s+)?(?:о\s+том\s*,?\s*что\s+|что\s+|про\s+|о\s+|об\s+)?'
+    prefix_pattern = r'^(?:(?:поставь|поставьте|создай|создайте|сделай|сделайте|добавь|добавьте|нужно|надо|не забудь|не забудьте)\s+)?(?:мне\s+)?(?:напомн\w*|напомин\w*|remind(?:\s+me)?)[,\s]*(?:мне\s+)?(?:о\s+том\s*,?\s*что\s+|что\s+|про\s+|о\s+|об\s+)?[,\s]*'
     t = re.sub(prefix_pattern, '', t, flags=re.IGNORECASE).strip()
+    t = re.sub(r'^[,\s]+', '', t).strip()
 
     date = None
     time_str = "09:00"
@@ -1048,16 +1049,34 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
     elif re.search(r'\b(?:на\s+)?послезавтра\b', t):
         date = (now + timedelta(days=2)).strftime("%Y-%m-%d")
         t = re.sub(r'\b(?:на\s+)?послезавтра\b', '', t).strip()
-    # "через минуту/час" (без числа = 1) или "через N часов/минут"
-    elif re.search(r'\bчерез\s+(одну|один|одно)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t) or re.search(r'\bчерез\s+(\d+)\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t):
-        m = re.search(r'\bчерез\s+(одну|один|одно)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t)
-        if m:
+    # "через полчаса"
+    elif re.search(r'\bчерез\s+полчаса\b', t):
+        target = now + timedelta(minutes=30)
+        date = target.strftime("%Y-%m-%d")
+        time_str = target.strftime("%H:%M")
+        t = re.sub(r'\bчерез\s+полчаса\b', '', t).strip()
+    # "через полтора часа"
+    elif re.search(r'\bчерез\s+полтора\s+часа\b', t):
+        target = now + timedelta(minutes=90)
+        date = target.strftime("%Y-%m-%d")
+        time_str = target.strftime("%H:%M")
+        t = re.sub(r'\bчерез\s+полтора\s+часа\b', '', t).strip()
+    # "через [N|word] [минут|часов|секунд]"
+    elif re.search(r'\bчерез\s+(одну|один|одно|две|два|три|четыре|пять|шесть|семь|восемь|девять|десять|пятнадцать|двадцать|тридцать|\d+)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t):
+        m = re.search(r'\bчерез\s+(одну|один|одно|две|два|три|четыре|пять|шесть|семь|восемь|девять|десять|пятнадцать|двадцать|тридцать|\d+)?\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t)
+        word_num_map = {
+            'одну': 1, 'один': 1, 'одно': 1, 'две': 2, 'два': 2, 'три': 3, 'четыре': 4,
+            'пять': 5, 'шесть': 6, 'семь': 7, 'восемь': 8, 'девять': 9, 'десять': 10,
+            'пятнадцать': 15, 'двадцать': 20, 'тридцать': 30
+        }
+        val_str = m.group(1)
+        if not val_str:
             n = 1
-            unit = m.group(2)
+        elif val_str.isdigit():
+            n = int(val_str)
         else:
-            m = re.search(r'\bчерез\s+(\d+)\s*(минуту|минуты|минут|час|часа|часов|секунду|секунды|секунд)\b', t)
-            n = int(m.group(1))
-            unit = m.group(2)
+            n = word_num_map.get(val_str, 1)
+        unit = m.group(2)
         if 'час' in unit:
             delta = timedelta(hours=n)
         elif 'секунд' in unit:
@@ -1067,119 +1086,155 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
         target = now + delta
         date = target.strftime("%Y-%m-%d")
         time_str = target.strftime("%H:%M")
-        t = t[:m.start()] + t[m.end():]
+        t = t[:m.start()] + " " + t[m.end():]
         t = t.strip()
-    # "DD.MM.YYYY" or "DD.MM"
-    elif re.search(r'\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t):
-        m = re.search(r'\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t)
+    # "DD.MM.YYYY" or "DD.MM" (not preceded by "в ")
+    elif re.search(r'(?<!в\s)\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t):
+        m = re.search(r'(?<!в\s)\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t)
         day = int(m.group(1))
         month = int(m.group(2))
         year = int(m.group(3)) if m.group(3) else now.year
-        try:
-            date = datetime(year, month, day).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-        t = t[:m.start()] + t[m.end():]
-        t = t.strip()
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            try:
+                date = datetime(year, month, day).strftime("%Y-%m-%d")
+                t = t[:m.start()] + " " + t[m.end():]
+                t = t.strip()
+            except ValueError:
+                pass
     # "N числа"
     elif re.search(r'\b(\d{1,2})\s+числа\b', t):
         m = re.search(r'\b(\d{1,2})\s+числа\b', t)
         day = int(m.group(1))
-        month = now.month
-        if day < now.day:
-            month += 1
-        if month > 12:
-            month = 1
-        year = now.year if month >= now.month else now.year + 1
-        try:
-            date = datetime(year, month, day).strftime("%Y-%m-%d")
-        except ValueError:
-            pass
-        t = t[:m.start()] + t[m.end():]
-        t = t.strip()
-    # "следующий/эта/этот + день недели"
-    elif re.search(r'\b(следующий|следующая|следующее|эта|этот|этого)\s+(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t):
-        weekdays_map = {'понедельник': 0, 'вторник': 1, 'среда': 2, 'четверг': 3, 'пятница': 4, 'суббота': 5, 'воскресенье': 6}
-        m = re.search(r'\b(следующий|следующая|следующее|эта|этот|этого)\s+(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t)
-        target_wd = weekdays_map[m.group(2)]
-        days_ahead = (target_wd - now.weekday()) % 7
-        if days_ahead == 0:
-            days_ahead = 7
-        date = (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-        t = t[:m.start()] + t[m.end():]
-        t = t.strip()
-    # "понедельник", "вторник" etc. without prefix
-    elif re.search(r'\b(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t):
-        weekdays_map = {'понедельник': 0, 'вторник': 1, 'среда': 2, 'четверг': 3, 'пятница': 4, 'суббота': 5, 'воскресенье': 6}
-        m = re.search(r'\b(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)\b', t)
-        target_wd = weekdays_map[m.group(1)]
-        days_ahead = (target_wd - now.weekday()) % 7
-        if days_ahead == 0:
-            days_ahead = 7
-        date = (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
-        t = t[:m.start()] + t[m.end():]
-        t = t.strip()
+        if 1 <= day <= 31:
+            month = now.month
+            if day < now.day:
+                month += 1
+            if month > 12:
+                month = 1
+            year = now.year if month >= now.month else now.year + 1
+            try:
+                date = datetime(year, month, day).strftime("%Y-%m-%d")
+                t = t[:m.start()] + " " + t[m.end():]
+                t = t.strip()
+            except ValueError:
+                pass
+    # Days of week with inflections: "в пятницу", "в среду", "в понедельник"
+    if not date:
+        weekday_stems = [
+            (r'\b(?:в\s+)?(?:следующ\w*\s+|эт\w*\s+)?(понедельник\w*)\b', 0),
+            (r'\b(?:в\s+)?(?:следующ\w*\s+|эт\w*\s+)?(вторник\w*)\b', 1),
+            (r'\b(?:в\s+)?(?:следующ\w*\s+|эт\w*\s+)?(сред\w*)\b', 2),
+            (r'\b(?:в\s+)?(?:следующ\w*\s+|эт\w*\s+)?(четверг\w*)\b', 3),
+            (r'\b(?:в\s+)?(?:следующ\w*\s+|эт\w*\s+)?(пятниц\w*)\b', 4),
+            (r'\b(?:в\s+)?(?:следующ\w*\s+|эт\w*\s+)?(суббот\w*)\b', 5),
+            (r'\b(?:в\s+)?(?:следующ\w*\s+|эт\w*\s+)?(воскресень\w*)\b', 6),
+        ]
+        for pat, target_wd in weekday_stems:
+            m = re.search(pat, t)
+            if m:
+                days_ahead = (target_wd - now.weekday()) % 7
+                if days_ahead == 0:
+                    days_ahead = 7
+                date = (now + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+                t = t[:m.start()] + " " + t[m.end():]
+                t = t.strip()
+                break
 
     # --- Parse time ---
-    # "в HH:MM" or "HH:MM" — with colon or dot
-    time_match = re.search(r'(?:^|\s)(?:в\s+)?(\d{1,2})[:\.](\d{1,2})\b', t)
-    if time_match:
-        h = max(0, min(23, int(time_match.group(1))))
-        m_val = max(0, min(59, int(time_match.group(2))))
-        time_str = f"{h:02d}:{m_val:02d}"
-        t = t[:time_match.start()] + t[time_match.end():]
-        t = t.strip()
-    else:
-        # "в HH MM" — hour and minutes separated by space (e.g. "в 4 30", "в 16 28")
-        time_match = re.search(r'\bв\s+(\d{1,2})\s+(\d{1,2})\b', t)
+    time_parsed = (time_str != "09:00" and date is not None)
+
+    if not time_parsed:
+        # a) "в HH:MM", "в HH,MM", "в HH.MM" or "HH:MM" or "HH,MM" / "HH.MM" (2 digits for min)
+        time_pat = r'(?:^|[,\s])(?:(?:в\s+(\d{1,2})[:,.](\d{1,2}))|(?:(\d{1,2}):(\d{1,2}))|(?:(\d{1,2})[.,](\d{2})))(?![\s]*(?:кг|г|кило|килограмм|литр|л|руб|коп|шт|%|метр))\b'
+        time_match = re.search(time_pat, t)
         if time_match:
-            h = max(0, min(23, int(time_match.group(1))))
-            m_val = max(0, min(59, int(time_match.group(2))))
-            time_str = f"{h:02d}:{m_val:02d}"
-            t = t[:time_match.start()] + t[time_match.end():]
-            t = t.strip()
-        else:
-            # "в 3-4 digits" — words_to_digits merged hour+minutes (e.g. "в 328" = 3:28, "в 1628" = 16:28)
-            time_match = re.search(r'\bв\s+(\d{3,4})\b', t)
-            matched_time = False
-            if time_match:
-                num = int(time_match.group(1))
-                h = num // 100
-                m_val = num % 100
-                if h <= 23 and m_val <= 59:
-                    time_str = f"{h:02d}:{m_val:02d}"
-                    t = t[:time_match.start()] + t[time_match.end():]
-                    t = t.strip()
-                    matched_time = True
-            if not matched_time:
-                # "в HH" — just hour, no minutes (e.g. "в 4", "в 16")
-                time_match = re.search(r'\bв\s+(\d{1,2})\b', t)
-                if time_match:
-                    h = int(time_match.group(1))
-                    if h <= 23:
-                        time_str = f"{h:02d}:00"
-                        t = t[:time_match.start()] + t[time_match.end():]
-                        t = t.strip()
-                        matched_time = True
-                if not matched_time:
-                    # "вечером" → 18:00
-                    if re.search(r'\bвечером\b', t):
-                        time_str = "18:00"
-                        t = re.sub(r'\bвечером\b', '', t).strip()
-                    elif re.search(r'\bутром\b', t):
-                        time_str = "09:00"
-                        t = re.sub(r'\bутром\b', '', t).strip()
-                    elif re.search(r'\bднём\b', t):
-                        time_str = "12:00"
-                        t = re.sub(r'\bднём\b', '', t).strip()
-                    elif re.search(r'\bночью\b', t):
-                        time_str = "00:00"
-                        t = re.sub(r'\bночью\b', '', t).strip()
+            g = time_match.groups()
+            if g[0] is not None:
+                h, m_val = int(g[0]), int(g[1])
+            elif g[2] is not None:
+                h, m_val = int(g[2]), int(g[3])
+            else:
+                h, m_val = int(g[4]), int(g[5])
+            if h <= 23 and m_val <= 59:
+                time_str = f"{h:02d}:{m_val:02d}"
+                t = t[:time_match.start()] + " " + t[time_match.end():]
+                t = t.strip()
+                time_parsed = True
+
+    if not time_parsed:
+        # b) "в HH MM" — hour and minutes separated by space (e.g. "в 0 55", "в 16 28")
+        time_match = re.search(r'\bв\s+(\d{1,2})\s+(\d{2})\b', t)
+        if time_match:
+            h = int(time_match.group(1))
+            m_val = int(time_match.group(2))
+            if h <= 23 and m_val <= 59:
+                time_str = f"{h:02d}:{m_val:02d}"
+                t = t[:time_match.start()] + " " + t[time_match.end():]
+                t = t.strip()
+                time_parsed = True
+
+    if not time_parsed:
+        # c) "в HH (вечера|дня|утра|ночи)"
+        time_match = re.search(r'\bв\s+(\d{1,2})\s+(вечера|дня|утра|ночи)\b', t)
+        if time_match:
+            h = int(time_match.group(1))
+            period = time_match.group(2)
+            if period in ('вечера', 'дня') and h < 12:
+                h += 12
+            elif period == 'ночи' and h == 12:
+                h = 0
+            if 0 <= h <= 23:
+                time_str = f"{h:02d}:00"
+                t = t[:time_match.start()] + " " + t[time_match.end():]
+                t = t.strip()
+                time_parsed = True
+
+    if not time_parsed:
+        # d) "в 3-4 digits" (e.g. "в 328" = 3:28, "в 1628" = 16:28)
+        time_match = re.search(r'\bв\s+(\d{3,4})\b', t)
+        if time_match:
+            num = int(time_match.group(1))
+            h = num // 100
+            m_val = num % 100
+            if h <= 23 and m_val <= 59:
+                time_str = f"{h:02d}:{m_val:02d}"
+                t = t[:time_match.start()] + " " + t[time_match.end():]
+                t = t.strip()
+                time_parsed = True
+
+    if not time_parsed:
+        # e) "в HH" — just hour (e.g. "в 4", "в 16", "в 4 часа")
+        time_match = re.search(r'\bв\s+(\d{1,2})(?![:,.]\d)(?:\s+часов|\s+часа|\s+час)?\b', t)
+        if time_match:
+            h = int(time_match.group(1))
+            if h <= 23:
+                time_str = f"{h:02d}:00"
+                t = t[:time_match.start()] + " " + t[time_match.end():]
+                t = t.strip()
+                time_parsed = True
+
+    if not time_parsed:
+        # f) Words for times of day
+        if re.search(r'\bвечером\b', t):
+            time_str = "18:00"
+            t = re.sub(r'\bвечером\b', '', t).strip()
+        elif re.search(r'\bутром\b', t):
+            time_str = "09:00"
+            t = re.sub(r'\bутром\b', '', t).strip()
+        elif re.search(r'\bднём\b', t):
+            time_str = "13:00"
+            t = re.sub(r'\bднём\b', '', t).strip()
+        elif re.search(r'\bполдень\b', t):
+            time_str = "12:00"
+            t = re.sub(r'\b(?:в\s+)?полдень\b', '', t).strip()
+        elif re.search(r'\bполночь\b', t):
+            time_str = "00:00"
+            t = re.sub(r'\b(?:в\s+)?полночь\b', '', t).strip()
 
     if not date:
-        # If specified time is later today, set to today; otherwise tomorrow
+        # If specified time is later today or in the current minute, set to today; otherwise tomorrow
         now_hm = now.strftime("%H:%M")
-        if time_str > now_hm:
+        if time_str >= now_hm:
             date = now.strftime("%Y-%m-%d")
         else:
             date = (now + timedelta(days=1)).strftime("%Y-%m-%d")
@@ -1191,8 +1246,7 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
     t = re.sub(r'\bмне\b', '', t).strip()
     t = re.sub(r'^(?:на\s+|в\s+|что\s+|про\s+|о\s+|об\s+)', '', t).strip()
     t = re.sub(r'\bпро\b', '', t).strip()
-    t = re.sub(r'^[,.\s]+|[.,\s]+$', '', t).strip()
-    # Remove orphan single letters from STT artifacts (e.g. "м купить хлеб" → "купить хлеб")
+    t = re.sub(r'^[,\.\s]+|[,\.\s]+$', '', t).strip()
     t = re.sub(r'^[а-яё]\s+', '', t).strip()
 
     if not t:
