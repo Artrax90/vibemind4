@@ -11,6 +11,11 @@ def words_to_digits(text: str) -> str:
     if not text:
         return text
 
+    # Normalize "в час" expressions before word splitting
+    text = re.sub(r'\bв\s+час\s+ночи\b', 'в 1', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bв\s+час\s+дня\b', 'в 13', text, flags=re.IGNORECASE)
+    text = re.sub(r'\bв\s+час\b(?!\s*(?:дня|ночи|минут|секунд))', 'в 1', text, flags=re.IGNORECASE)
+
     units = {
         "ноль": 0, "один": 1, "одна": 1, "два": 2, "две": 2, "три": 3, "четыре": 4, "пять": 5, "шесть": 6, "семь": 7, "восемь": 8, "девять": 9,
         "десять": 10, "одиннадцать": 11, "двенадцать": 12, "тринадцать": 13, "четырнадцать": 14, "пятнадцать": 15, "шестнадцать": 16, "семнадцать": 17, "восемнадцать": 18, "девятнадцать": 19

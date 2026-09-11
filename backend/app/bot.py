@@ -891,6 +891,11 @@ async def handle_voice(message: types.Message, user_id: int, admin_id: str = Non
             await message.answer("❌ Не удалось распознать речь.")
             return
             
+        # Normalize common STT speech artifacts (e.g. "напомнив 1.08" -> "напомни в 1.08")
+        text = re.sub(r'\bнапомнив\b', 'напомни в', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bнапоминайв\b', 'напоминай в', text, flags=re.IGNORECASE)
+        text = re.sub(r'\bнапомни-в\b', 'напомни в', text, flags=re.IGNORECASE)
+
         # Convert words to digits for better processing
         text = words_to_digits(text)
         
@@ -1028,6 +1033,11 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
     now = datetime.now()
     t = text.lower().strip()
     
+    # Normalize speech-to-text artifacts (e.g. "напомнив 1.08" -> "напомни в 1.08")
+    t = re.sub(r'\bнапомнив\b', 'напомни в', t, flags=re.IGNORECASE)
+    t = re.sub(r'\bнапоминайв\b', 'напоминай в', t, flags=re.IGNORECASE)
+    t = re.sub(r'\bнапомни-в\b', 'напомни в', t, flags=re.IGNORECASE)
+
     # Remove trigger words / prefixes
     prefix_pattern = r'^(?:(?:поставь|поставьте|создай|создайте|сделай|сделайте|добавь|добавьте|нужно|надо|не забудь|не забудьте)\s+)?(?:мне\s+)?(?:напомн\w*|напомин\w*|remind(?:\s+me)?)[,\s]*(?:мне\s+)?(?:о\s+том\s*,?\s*что\s+|что\s+|про\s+|о\s+|об\s+)?[,\s]*'
     t = re.sub(prefix_pattern, '', t, flags=re.IGNORECASE).strip()
@@ -1088,17 +1098,39 @@ def parse_reminder(text: str) -> Optional[Dict[str, str]]:
         time_str = target.strftime("%H:%M")
         t = t[:m.start()] + " " + t[m.end():]
         t = t.strip()
-    # "DD.MM.YYYY" or "DD.MM" (not preceded by "в ")
-    elif re.search(r'(?<!в\s)\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t):
-        m = re.search(r'(?<!в\s)\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b', t)
+    # "DD.MM.YYYY" (3 components — explicitly specifying a year, always a date)
+    elif re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b', t):
+        m = re.search(r'\b(\d{1,2})\.(\d{1,2})\.(\d{4})\b', t)
         day = int(m.group(1))
         month = int(m.group(2))
-        year = int(m.group(3)) if m.group(3) else now.year
+        year = int(m.group(3))
         if 1 <= month <= 12 and 1 <= day <= 31:
             try:
                 date = datetime(year, month, day).strftime("%Y-%m-%d")
                 t = t[:m.start()] + " " + t[m.end():]
                 t = t.strip()
+            except ValueError:
+                pass
+    # "DD.MM" (2 components without year, not preceded by "в ")
+    elif re.search(r'(?<!в\s)\b(\d{1,2})\.(\d{1,2})\b', t):
+        m = re.search(r'(?<!в\s)\b(\d{1,2})\.(\d{1,2})\b', t)
+        day = int(m.group(1))
+        month = int(m.group(2))
+        year = now.year
+        if 1 <= month <= 12 and 1 <= day <= 31:
+            try:
+                cand_dt = datetime(year, month, day)
+                is_valid_time = (day <= 23 and month <= 59)
+                # If date in current year is already in the past, and numbers could represent valid time (e.g. 1.08 in September is 01:08):
+                # Do not treat as date; allow time parser to handle it.
+                if cand_dt.date() < now.date() and is_valid_time:
+                    pass
+                else:
+                    if cand_dt.date() < now.date():
+                        cand_dt = datetime(year + 1, month, day)
+                    date = cand_dt.strftime("%Y-%m-%d")
+                    t = t[:m.start()] + " " + t[m.end():]
+                    t = t.strip()
             except ValueError:
                 pass
     # "N числа"
@@ -1366,11 +1398,16 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
     if admin_id and str(message.from_user.id) != str(admin_id): return
     if message.text.startswith('/'): return
 
+    # Normalize speech artifacts (e.g. "напомнив 1.08" -> "напомни в 1.08")
+    clean_text = re.sub(r'\bнапомнив\b', 'напомни в', message.text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\bнапоминайв\b', 'напоминай в', clean_text, flags=re.IGNORECASE)
+    clean_text = re.sub(r'\bнапомни-в\b', 'напомни в', clean_text, flags=re.IGNORECASE)
+
     # --- Check for reminder intent FIRST ---
-    text_lower = message.text.lower().strip()
+    text_lower = clean_text.lower().strip()
     reminder_pattern = r'^(?:(?:поставь|поставьте|создай|создайте|сделай|сделайте|добавь|добавьте|нужно|надо|не забудь|не забудьте)\s+)?(?:мне\s+)?(?:напомн\w*|напомин\w*|remind(?:\s+me)?)\b'
     if re.search(reminder_pattern, text_lower):
-        parsed = parse_reminder(message.text)
+        parsed = parse_reminder(clean_text)
         if parsed:
             result = await create_reminder_api(user_id, parsed)
             if result.get("status") == "success":
