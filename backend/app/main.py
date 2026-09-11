@@ -126,6 +126,18 @@ async def startup_event():
         return
     starting_up = True
     
+    # Suppress harmless asyncio GC warnings from third-party libraries (aiogram/aiohttp)
+    try:
+        loop = asyncio.get_running_loop()
+        def _suppress_unclosed_session_handler(loop_instance, context):
+            msg = str(context.get("message", ""))
+            if "Unclosed client session" in msg or "Unclosed connector" in msg:
+                return  # Silently drop harmless GC warnings
+            loop_instance.default_exception_handler(context)
+        loop.set_exception_handler(_suppress_unclosed_session_handler)
+    except Exception:
+        pass
+
     # Файловая блокировка для предотвращения запуска ботов несколькими воркерами uvicorn
     lock_file = "/tmp/vibemind_bot_startup.lock"
     try:
