@@ -210,9 +210,7 @@ token_to_user: Dict[str, int] = {} # token -> user_id
 user_usernames: Dict[int, str] = {}
 bot_locks: Dict[int, asyncio.Lock] = {} # Lock per user
 awaiting_passwords: Dict[str, Dict[str, Any]] = {} # chat_id -> {user_id: int, note_id: str}
-router = Router()
-dp = Dispatcher()
-dp.include_router(router)
+# Bot routers and dispatchers are created per-instance in start_bot via create_bot_router()
 
 def get_user_lock(user_id: int) -> asyncio.Lock:
     if user_id not in bot_locks:
@@ -623,7 +621,6 @@ async def send_long_message(message: types.Message, text: str, parse_mode: str =
 
 # --- Bot Handlers ---
 
-@router.callback_query(F.data.startswith("open_note_"))
 async def handle_open_note(callback: types.CallbackQuery, user_id: int):
     note_id = callback.data.replace("open_note_", "")
     await callback.answer()
@@ -694,11 +691,9 @@ async def handle_open_note(callback: types.CallbackQuery, user_id: int):
     else:
         await callback.message.answer("❌ Не удалось загрузить содержимое заметки.")
 
-@router.message(Command("start"))
-async def handle_start(message: types.Message):
+async def handle_start(message: types.Message, user_id: int = None, admin_id: str = None):
     await message.answer("Привет! Я твой личный помощник VibeMind. Присылай мне любые мысли, ссылки или картинки, и я сохраню их в твои заметки.")
 
-@router.message(F.voice)
 async def handle_voice(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     await message.answer("🎙 Голосовое сообщение получено. Запускаю транскрибацию...")
@@ -721,7 +716,6 @@ async def handle_voice(message: types.Message, user_id: int, admin_id: str = Non
     except Exception as e:
         await message.answer(f"❌ Ошибка при обработке голоса: {str(e)}")
 
-@router.message(F.photo)
 async def handle_photo(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     try:
@@ -780,7 +774,6 @@ async def handle_photo(message: types.Message, user_id: int, admin_id: str = Non
         logger.error(f"Error in handle_photo: {e}")
         await message.answer(f"❌ Ошибка: {str(e)}")
 
-@router.message(F.document)
 async def handle_document(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     doc = message.document
@@ -1057,7 +1050,6 @@ async def delete_reminder_api(user_id: int, reminder_id: str) -> bool:
     except:
         return False
 
-@router.message(Command("calendar"))
 async def handle_calendar(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     args = message.text.split(maxsplit=1)
@@ -1119,7 +1111,6 @@ async def _show_calendar(message: types.Message, user_id: int, sub: str = "се�
     await send_long_message(message, resp)
 
 
-@router.message(F.text)
 async def handle_text(message: types.Message, user_id: int, admin_id: str = None):
     if admin_id and str(message.from_user.id) != str(admin_id): return
     if message.text.startswith('/'): return
@@ -1307,9 +1298,23 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
 
 # --- Bot Management ---
 
+def create_bot_router() -> Router:
+    r = Router()
+    r.callback_query.register(handle_open_note, F.data.startswith("open_note_"))
+    r.message.register(handle_start, Command("start"))
+    r.message.register(handle_voice, F.voice)
+    r.message.register(handle_photo, F.photo)
+    r.message.register(handle_document, F.document)
+    r.message.register(handle_calendar, Command("calendar"))
+    r.message.register(handle_text, F.text)
+    return r
+
+router = create_bot_router()
+
 async def start_bot(user_id: int, username: str, token: str, proxy_url: str = None, proxy_config: dict = None, admin_id: str = None):
     global current_bots, user_usernames, token_to_user, bot_tasks
     
+    cur_task = asyncio.current_task()
     async with get_user_lock(user_id):
         # Проверяем, не запущен ли уже этот токен другим пользователем
         if token in token_to_user and token_to_user[token] != user_id:
@@ -1322,8 +1327,8 @@ async def start_bot(user_id: int, username: str, token: str, proxy_url: str = No
             # Но для чистоты - удалим из реестра.
             token_to_user.pop(token, None)
         
-        # Если для этого пользователя УЖЕ есть запущенная задача - отменяем её
-        if user_id in bot_tasks:
+        # Если для этого пользователя УЖЕ есть запущенная задача (и это не текущая) - отменяем её
+        if user_id in bot_tasks and bot_tasks[user_id] != cur_task:
             logger.warning(f"Bot task already exists for user {user_id}. Cancelling before start...")
             task = bot_tasks[user_id]
             task.cancel()
@@ -1331,6 +1336,7 @@ async def start_bot(user_id: int, username: str, token: str, proxy_url: str = No
             except: pass
             bot_tasks.pop(user_id, None)
 
+        bot_tasks[user_id] = cur_task
         token_to_user[token] = user_id
         user_usernames[user_id] = username
     if isinstance(proxy_url, str) and proxy_url.strip().startswith("{"):
@@ -1356,10 +1362,12 @@ async def start_bot(user_id: int, username: str, token: str, proxy_url: str = No
             # Удаляем вебхук перед запуском поллинга, чтобы избежать ConflictError
             await bot.delete_webhook(drop_pending_updates=True)
             bot_dp = Dispatcher()
-            bot_dp.include_router(router)
+            bot_dp.include_router(create_bot_router())
             await bot_dp.start_polling(bot, user_id=user_id, admin_id=admin_id, handle_signals=False)
         finally:
             current_bots.pop(user_id, None)
+            if bot_tasks.get(user_id) == cur_task:
+                bot_tasks.pop(user_id, None)
             try:
                 await session.close()
                 await asyncio.sleep(0.25)
