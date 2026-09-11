@@ -317,20 +317,39 @@ async def check_reminders():
                             except Exception:
                                 base_time = now
 
-                            step = None
+                            next_time = base_time
                             if reminder.repeat_type == 'daily':
                                 step = timedelta(days=1)
-                            elif reminder.repeat_type == 'weekly':
-                                step = timedelta(weeks=1)
-                            elif reminder.repeat_type == 'monthly':
-                                step = timedelta(days=30)
-                            elif reminder.repeat_type == 'yearly':
-                                step = timedelta(days=365)
-
-                            if step:
-                                next_time = base_time + step
+                                next_time += step
                                 while next_time <= now:
                                     next_time += step
+                            elif reminder.repeat_type == 'weekly':
+                                step = timedelta(weeks=1)
+                                next_time += step
+                                while next_time <= now:
+                                    next_time += step
+                            elif reminder.repeat_type == 'monthly':
+                                import calendar
+                                while True:
+                                    new_month = next_time.month + 1
+                                    new_year = next_time.year + (new_month - 1) // 12
+                                    new_month = (new_month - 1) % 12 + 1
+                                    _, max_days = calendar.monthrange(new_year, new_month)
+                                    target_day = min(base_time.day, max_days)
+                                    next_time = next_time.replace(year=new_year, month=new_month, day=target_day)
+                                    if next_time > now:
+                                        break
+                            elif reminder.repeat_type == 'yearly':
+                                while True:
+                                    new_year = next_time.year + 1
+                                    try:
+                                        next_time = next_time.replace(year=new_year)
+                                    except ValueError:
+                                        next_time = next_time.replace(year=new_year, day=28)
+                                    if next_time > now:
+                                        break
+                            else:
+                                next_time = None
 
                                 # Check if already scheduled to prevent duplicates
                                 existing_future = db.query(Reminder).filter(

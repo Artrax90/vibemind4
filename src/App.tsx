@@ -18,6 +18,7 @@ const BoardEditor = React.lazy(() => import('./components/BoardEditor'));
 import { useLanguage } from './contexts/LanguageContext';
 import { Note, Folder } from './types';
 import { api } from './api/client';
+import { isReminderOnDate } from './lib/utils';
 
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean, error: any }> {
   constructor(props: { children: ReactNode }) {
@@ -591,15 +592,22 @@ export default function App() {
                     if (!day) return <div key={i} />;
                     const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
                     const dayNotes = notes.filter(n => (n.created_at || '').startsWith(dateStr) || (n.updated_at || '').startsWith(dateStr));
-                    const dayReminders = reminders.filter(r => (r.remind_at || '').startsWith(dateStr));
-                    const allItems = [...dayNotes.map(n => ({ type: 'note' as const, id: n.id, title: n.title })), ...dayReminders.map(r => ({ type: 'reminder' as const, id: r.id, noteId: r.note_id, title: r.message || notes.find(n => n.id === r.note_id)?.title || 'Напоминание', time: r.remind_at }))];
+                    const dayReminders = reminders.filter(r => isReminderOnDate(r, dateStr));
+                    const seenReminderKeys = new Set<string>();
+                    const uniqueDayReminders = dayReminders.filter(r => {
+                      const key = `${r.note_id || ''}:${r.message || ''}:${r.repeat_type || 'none'}`;
+                      if (seenReminderKeys.has(key)) return false;
+                      seenReminderKeys.add(key);
+                      return true;
+                    });
+                    const allItems = [...dayNotes.map(n => ({ type: 'note' as const, id: n.id, title: n.title })), ...uniqueDayReminders.map(r => ({ type: 'reminder' as const, id: r.id, noteId: r.note_id, title: r.message || notes.find(n => n.id === r.note_id)?.title || 'Напоминание', time: r.remind_at }))];
                     const expanded = expandedDay === dateStr;
                     const today = new Date();
                     const isToday = today.getDate() === day && today.getMonth() === calMonth && today.getFullYear() === calYear;
                     return (
                       <div key={i} className="relative">
                         <div onClick={(e) => { e.stopPropagation(); setExpandedDay(expanded ? null : dateStr); }}
-                          className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-1 ring-primary/30' : dayReminders.length > 0 ? 'border-violet-500/80 bg-violet-200 ring-2 ring-violet-400/60 dark:bg-violet-950/20 dark:ring-violet-300/30' : allItems.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'} ${expanded ? 'shadow-lg' : ''}`}>
+                          className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-1 ring-primary/30' : uniqueDayReminders.length > 0 ? 'border-violet-500/80 bg-violet-200 ring-2 ring-violet-400/60 dark:bg-violet-950/20 dark:ring-violet-300/30' : allItems.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'} ${expanded ? 'shadow-lg' : ''}`}>
                           <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
                           {allItems.slice(0, 2).map(item => (
                             <div key={item.type + item.id} className="text-xs truncate text-foreground/80 flex items-center gap-1">
