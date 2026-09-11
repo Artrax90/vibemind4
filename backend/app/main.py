@@ -873,7 +873,7 @@ async def import_notes(file: UploadFile = File(...), background_tasks: Backgroun
     return {"status": "success", "count": count}
 
 def russian_stem(word: str) -> str:
-    word = word.lower().strip()
+    word = word.lower().strip(" \t\n\r.,!?:;\"'«»()")
     if len(word) <= 3:
         return word
     endings = [

@@ -12,7 +12,7 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - ENCRYPTION_KEY=super-secret-default-key-change-me-later-123
       - TZ=Europe/Moscow
-      - STT_HOST=vosk
+      - STT_HOST=whisper
       - STT_PORT=10300
     restart: always
     depends_on:
@@ -20,7 +20,7 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
-      vosk:
+      whisper:
         condition: service_started
 
   db:
@@ -46,23 +46,56 @@ services:
     container_name: vibemind_redis
     restart: always
 
-  vosk:
-    image: rhasspy/wyoming-vosk
-    container_name: wyoming-vosk
+  # STT: Wyoming Faster-Whisper (современная замена Vosk на базе OpenAI Whisper)
+  # Модель: small (~500 МБ RAM). Если сервер слабый, можно указать 'base' (~200 МБ RAM).
+  # Для отката на Vosk: раскомментируйте блок 'vosk' ниже и закомментируйте 'whisper'.
+  whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: wyoming-whisper
     restart: unless-stopped
     ports:
       - "10300:10300"
     volumes:
-      - ./vosk-model:/data
+      - ./whisper-data:/data
     command:
+      - --model
+      - small
+      - --language
+      - ru
       - --uri
       - tcp://0.0.0.0:10300
       - --data-dir
       - /data
       - --download-dir
       - /data
-      - --language
-      - ru
+    networks:
+      default:
+        aliases:
+          - vosk
+          - whisper
+
+  # vosk:
+  #   image: rhasspy/wyoming-vosk
+  #   container_name: wyoming-vosk
+  #   restart: unless-stopped
+  #   ports:
+  #     - "10300:10300"
+  #   volumes:
+  #     - ./vosk-model:/data
+  #   command:
+  #     - --uri
+  #     - tcp://0.0.0.0:10300
+  #     - --data-dir
+  #     - /data
+  #     - --download-dir
+  #     - /data
+  #     - --language
+  #     - ru
+  #   networks:
+  #     default:
+  #       aliases:
+  #         - vosk
+  #         - whisper
 
 volumes:
   vibemind_db_data:

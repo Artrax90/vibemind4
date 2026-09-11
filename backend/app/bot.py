@@ -392,7 +392,7 @@ async def parse_commands_llm(user_id: int, text: str, notes: list[dict] = None) 
         return parse_commands(text, notes)
 
 def russian_stem(word: str) -> str:
-    word = word.lower().strip()
+    word = word.lower().strip(" \t\n\r.,!?:;\"'«»()")
     if len(word) <= 3:
         return word
     endings = [
@@ -407,7 +407,10 @@ def russian_stem(word: str) -> str:
     return word
 
 def words_stem_match(w1: str, w2: str) -> bool:
-    w1, w2 = w1.lower().strip(), w2.lower().strip()
+    w1 = w1.lower().strip(" \t\n\r.,!?:;\"'«»()")
+    w2 = w2.lower().strip(" \t\n\r.,!?:;\"'«»()")
+    if not w1 or not w2:
+        return False
     if w1 == w2:
         return True
     if russian_stem(w1) == russian_stem(w2):
@@ -425,7 +428,7 @@ def find_matching_note(cleaned: str, notes: list[dict] = None) -> tuple[Optional
     if not notes or not cleaned:
         return None, None
 
-    cleaned_words = cleaned.split()
+    cleaned_words = [w.strip(" \t\n\r.,!?:;\"'«»()") for w in cleaned.split() if w.strip(" \t\n\r.,!?:;\"'«»()")]
     if not cleaned_words:
         return None, None
 
@@ -434,13 +437,14 @@ def find_matching_note(cleaned: str, notes: list[dict] = None) -> tuple[Optional
     if end_match:
         content_candidate = end_match.group(1).strip()
         title_candidate = end_match.group(2).strip()
-        title_words = title_candidate.split()
+        title_words = [w.strip(" \t\n\r.,!?:;\"'«»()") for w in title_candidate.split() if w.strip(" \t\n\r.,!?:;\"'«»()")]
         for note in notes:
             n_title = note.get("title", "").strip()
             if not n_title: continue
-            n_words = n_title.split()
+            n_words = [w.strip(" \t\n\r.,!?:;\"'«»()") for w in n_title.split() if w.strip(" \t\n\r.,!?:;\"'«»()")]
             if len(title_words) == len(n_words) and all(words_stem_match(tw, nw) for tw, nw in zip(title_words, n_words)):
-                return note, content_candidate
+                content_clean = re.sub(r'^[.,!?:;\s]+|[.,!?:;\s]+$', '', content_candidate)
+                return note, content_clean
 
     # 2. Check if text starts with note title (e.g. "сериала игра престолов", "список покупок молоко")
     sorted_notes = sorted(notes, key=lambda n: len(n.get("title", "").split()), reverse=True)
@@ -448,13 +452,15 @@ def find_matching_note(cleaned: str, notes: list[dict] = None) -> tuple[Optional
     for note in sorted_notes:
         n_title = note.get("title", "").strip()
         if not n_title: continue
-        n_words = n_title.split()
+        n_words = [w.strip(" \t\n\r.,!?:;\"'«»()") for w in n_title.split() if w.strip(" \t\n\r.,!?:;\"'«»()")]
         n_len = len(n_words)
 
         if len(cleaned_words) >= n_len:
             prefix_words = cleaned_words[:n_len]
             if all(words_stem_match(pw, nw) for pw, nw in zip(prefix_words, n_words)):
-                append_text = " ".join(cleaned_words[n_len:]).strip()
+                raw_words = cleaned.split()
+                append_text = " ".join(raw_words[n_len:]).strip()
+                append_text = re.sub(r'^[.,!?:;\s]+|[.,!?:;\s]+$', '', append_text)
                 return note, append_text
 
     # 3. Fuzzy match single-word titles
@@ -464,13 +470,15 @@ def find_matching_note(cleaned: str, notes: list[dict] = None) -> tuple[Optional
     for note in notes:
         n_title = note.get("title", "").strip()
         if not n_title: continue
-        n_words = n_title.split()
+        n_words = [w.strip(" \t\n\r.,!?:;\"'«»()") for w in n_title.split() if w.strip(" \t\n\r.,!?:;\"'«»()")]
         if len(n_words) == 1 and len(cleaned_words) >= 1:
             ratio = difflib.SequenceMatcher(None, russian_stem(cleaned_words[0]), russian_stem(n_words[0])).ratio()
             if ratio > 0.75 and ratio > best_score:
                 best_score = ratio
                 best_note = note
-                best_append = " ".join(cleaned_words[1:]).strip()
+                raw_words = cleaned.split()
+                append_text = " ".join(raw_words[1:]).strip()
+                best_append = re.sub(r'^[.,!?:;\s]+|[.,!?:;\s]+$', '', append_text)
 
     if best_note:
         return best_note, best_append
@@ -620,11 +628,11 @@ def parse_commands(text: str, notes: list[dict] = None) -> list[dict]:
             commands.append({"type": "SEARCH", "query": query})
     return commands
 
-STT_HOST = os.getenv("STT_HOST", "vosk")
+STT_HOST = os.getenv("STT_HOST", "whisper")
 STT_PORT = int(os.getenv("STT_PORT", 10300))
 
 async def speech_to_text(audio_path: str) -> str:
-    """Транскрибация аудио через Wyoming (Vosk)"""
+    """Транскрибация аудио через Wyoming (Whisper/Vosk)"""
     raw_path = audio_path.replace(".ogg", ".raw")
     logger.info(f"STT: Начинаю обработку. OGG: {audio_path}, RAW: {raw_path}")
     try:
@@ -644,7 +652,7 @@ async def speech_to_text(audio_path: str) -> str:
         
         transcript_text = ""
         while True:
-            event = await asyncio.wait_for(async_read_event(reader), timeout=20.0)
+            event = await asyncio.wait_for(async_read_event(reader), timeout=45.0)
             if event is None: break
             if Transcript.is_type(event.type):
                 transcript_text = Transcript.from_event(event).text
