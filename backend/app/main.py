@@ -142,6 +142,56 @@ async def startup_event():
             
         db = SessionLocal()
         try:
+            # ====== EMERGENCY: Clean up ALL stale reminders on startup ======
+            try:
+                now_str = datetime.now().isoformat()
+                # Mark ALL unsent reminders with past remind_at as sent
+                from sqlalchemy import func as sa_func
+                stale_updated = db.query(Reminder).filter(
+                    Reminder.is_sent == 0,
+                    Reminder.remind_at < now_str
+                ).update({Reminder.is_sent: 1})
+                db.commit()
+                if stale_updated:
+                    logger.warning(f"STARTUP CLEANUP: Marked {stale_updated} stale reminders as sent")
+                
+                # Delete duplicate unsent reminders (keep only one per user+message+remind_at)
+                dupes_query = db.query(
+                    Reminder.user_id, Reminder.message, Reminder.remind_at,
+                    sa_func.count(Reminder.id).label('cnt')
+                ).filter(
+                    Reminder.is_sent == 0
+                ).group_by(
+                    Reminder.user_id, Reminder.message, Reminder.remind_at
+                ).having(sa_func.count(Reminder.id) > 1).all()
+                
+                dedup_count = 0
+                for dupe in dupes_query:
+                    ids = [r.id for r in db.query(Reminder.id).filter(
+                        Reminder.user_id == dupe.user_id,
+                        Reminder.message == dupe.message,
+                        Reminder.remind_at == dupe.remind_at,
+                        Reminder.is_sent == 0
+                    ).all()]
+                    if len(ids) > 1:
+                        for rid in ids[1:]:
+                            db.query(Reminder).filter(Reminder.id == rid).delete()
+                            dedup_count += 1
+                if dedup_count:
+                    db.commit()
+                    logger.warning(f"STARTUP CLEANUP: Removed {dedup_count} duplicate reminders")
+
+                total = db.query(Reminder).count()
+                unsent = db.query(Reminder).filter(Reminder.is_sent == 0).count()
+                logger.info(f"STARTUP: Reminders status - total={total}, unsent={unsent}")
+            except Exception as cleanup_err:
+                logger.error(f"Startup reminder cleanup error: {cleanup_err}")
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+            # ====== END EMERGENCY CLEANUP ======
+
             # Create default admin if no users exist
             if db.query(User).count() == 0:
                 admin_user = User(
