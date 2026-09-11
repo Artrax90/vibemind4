@@ -1349,17 +1349,22 @@ async def start_bot(user_id: int, username: str, token: str, proxy_url: str = No
         
         # Use float for timeout to avoid math errors in aiogram (+ buffer)
         session = AiohttpSession(proxy=final_proxy_url, timeout=60.0) if final_proxy_url else AiohttpSession(timeout=60.0)
+        bot = Bot(token=token, session=session)
+        current_bots[user_id] = bot
         try:
-            async with Bot(token=token, session=session) as bot:
-                current_bots[user_id] = bot
-                logger.info(f"Запуск бота для {username}. Прокси: {final_proxy_url or 'Direct'}")
-                # Удаляем вебхук перед запуском поллинга, чтобы избежать ConflictError
-                await bot.delete_webhook(drop_pending_updates=True)
-                bot_dp = Dispatcher()
-                bot_dp.include_router(router)
-                await bot_dp.start_polling(bot, user_id=user_id, admin_id=admin_id, handle_signals=False)
+            logger.info(f"Запуск бота для {username}. Прокси: {final_proxy_url or 'Direct'}")
+            # Удаляем вебхук перед запуском поллинга, чтобы избежать ConflictError
+            await bot.delete_webhook(drop_pending_updates=True)
+            bot_dp = Dispatcher()
+            bot_dp.include_router(router)
+            await bot_dp.start_polling(bot, user_id=user_id, admin_id=admin_id, handle_signals=False)
         finally:
-            await session.close()
+            current_bots.pop(user_id, None)
+            try:
+                await session.close()
+                await asyncio.sleep(0.25)
+            except Exception:
+                pass
     except Exception as e:
         logger.error(f"Ошибка бота {user_id}: {e}")
 
@@ -1382,6 +1387,7 @@ async def stop_bot(user_id: int):
             try: 
                 # Пытаемся закрыть сессию бота
                 await bot.session.close()
+                await asyncio.sleep(0.25)
                 logger.info(f"Session closed for user {user_id}")
             except Exception as e: 
                 logger.error(f"Error closing session for user {user_id}: {e}")
