@@ -212,6 +212,31 @@ bot_locks: Dict[int, asyncio.Lock] = {} # Lock per user
 awaiting_passwords: Dict[str, Dict[str, Any]] = {} # chat_id -> {user_id: int, note_id: str}
 # Bot routers and dispatchers are created per-instance in start_bot via create_bot_router()
 
+def get_db_session():
+    """Получение сессии БД"""
+    try:
+        from .main import SessionLocal as MainSessionLocal
+        return MainSessionLocal()
+    except Exception:
+        pass
+    try:
+        from backend.database import SessionLocal as DbSessionLocal
+        return DbSessionLocal()
+    except Exception:
+        pass
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+    db_url = os.getenv("DATABASE_URL", "sqlite:////app/storage/vibemind.db")
+    engine = create_engine(
+        db_url,
+        connect_args={"check_same_thread": False} if "sqlite" in db_url else {},
+        pool_pre_ping=True
+    )
+    return sessionmaker(autocommit=False, autoflush=False, bind=engine)()
+
+def SessionLocal():
+    return get_db_session()
+
 def get_user_lock(user_id: int) -> asyncio.Lock:
     if user_id not in bot_locks:
         bot_locks[user_id] = asyncio.Lock()
@@ -228,25 +253,35 @@ async def parse_commands_llm(user_id: int, text: str, notes: list[dict] = None) 
     if notes is None:
         notes = []
         
-    db = SessionLocal()
+    config = None
+    db = None
     try:
+        db = SessionLocal()
         config = db.query(Config).filter(Config.user_id == user_id).first()
-        api_key = config.api_key if config else os.getenv("OPENAI_API_KEY")
-        provider = config.llm_provider if config else "openai"
-        model = config.model_name or ("gemini-1.5-flash" if provider == "gemini" else "gpt-4o-mini")
-        
-        # If provider is openai but no key, or if we want to force gemini in this environment
-        if provider == "openai" and not api_key:
-            gemini_key = os.getenv("GEMINI_API_KEY")
-            if gemini_key:
-                provider = "gemini"
-                api_key = gemini_key
-                model = "gemini-1.5-flash"
-        
-        if not api_key and provider != "gemini": # Gemini might use env key
-            logger.warning("API key not found, falling back to regex parser")
-            return parse_commands(text)
+    except Exception as e:
+        logger.error(f"Error querying config for user {user_id}: {e}")
+    finally:
+        if db:
+            try: db.close()
+            except Exception: pass
             
+    api_key = config.api_key if config else os.getenv("OPENAI_API_KEY")
+    provider = config.llm_provider if config else "openai"
+    model = config.model_name or ("gemini-1.5-flash" if provider == "gemini" else "gpt-4o-mini")
+    
+    # If provider is openai but no key, or if we want to force gemini in this environment
+    if provider == "openai" and not api_key:
+        gemini_key = os.getenv("GEMINI_API_KEY")
+        if gemini_key:
+            provider = "gemini"
+            api_key = gemini_key
+            model = "gemini-1.5-flash"
+    
+    if not api_key and provider != "gemini": # Gemini might use env key
+        logger.warning("API key not found, falling back to regex parser")
+        return parse_commands(text)
+            
+    try:
         user_content = f"notes:\n{json.dumps(notes, ensure_ascii=False)}\n\n\"{text}\""
         content = ""
 
@@ -335,8 +370,6 @@ async def parse_commands_llm(user_id: int, text: str, notes: list[dict] = None) 
     except Exception as e:
         logger.error(f"LLM Parsing error: {e}")
         return parse_commands(text)
-    finally:
-        db.close()
 
 def normalize_intent(text: str) -> str:
     if not text:
@@ -796,33 +829,33 @@ async def handle_document(message: types.Message, user_id: int, admin_id: str = 
             file_markdown = f"[{doc.file_name or 'Файл'}](/api/uploads/{filename})"
             
         if caption:
-            parsed = await parse_user_intent_with_llm(user_id, caption)
-            if parsed and parsed.get("status") == "success" and parsed.get("data"):
-                data = parsed["data"]
-                cmd = data[0] if isinstance(data, list) and data else (data if isinstance(data, dict) else None)
-                if cmd:
-                    intent = cmd.get("type")
-                    if intent == "UPDATE":
-                        target_id = cmd.get("note_id")
-                        if not target_id and cmd.get("search_query"):
-                            res = await search_api(user_id, cmd.get("search_query"))
-                            if res.get("status") == "success" and res.get("data"):
-                                target_id = res["data"][0].get('id')
-                        
-                        if target_id:
-                            append_text = f"{cmd['append']}\n\n{file_markdown}" if cmd.get("append") else file_markdown
-                            res = await patch_note_api(user_id, target_id, append_text)
-                            if res.get("status") == "success":
-                                await message.answer(f"📎 Файл добавлен в заметку «{res['data'].get('title')}»!")
-                                return
+            notes = await get_all_notes_api(user_id)
+            notes_context = [{"id": n.get("id"), "title": n.get("title"), "content": clean_content_for_llm(n.get("content", ""))} for n in notes]
+            commands = await parse_commands_llm(user_id, caption, notes_context)
+            if commands:
+                cmd = commands[0]
+                intent = cmd.get("type")
+                if intent == "UPDATE":
+                    target_id = cmd.get("note_id")
+                    if not target_id and cmd.get("search_query"):
+                        res = await search_api(user_id, cmd.get("search_query"))
+                        if res.get("status") == "success" and res.get("data"):
+                            target_id = res["data"][0].get('id')
                     
-                    elif intent == "CREATE":
-                        title = cmd.get("title", doc.file_name or "Без названия")
-                        note_content = f"{cmd['content']}\n\n{file_markdown}" if cmd.get("content") else (f"{caption}\n\n{file_markdown}" if caption else file_markdown)
-                        result = await save_note_to_api(user_id, title, note_content)
-                        if result.get("status") == "success":
-                            await message.answer(f"📎 Создал новую заметку «{title}» с файлом!")
+                    if target_id:
+                        append_text = f"{cmd['append']}\n\n{file_markdown}" if cmd.get("append") else file_markdown
+                        res = await patch_note_api(user_id, target_id, append_text)
+                        if res.get("status") == "success":
+                            await message.answer(f"📎 Файл добавлен в заметку «{res['data'].get('title')}»!")
                             return
+                
+                elif intent == "CREATE":
+                    title = cmd.get("title", doc.file_name or "Без названия")
+                    note_content = f"{cmd['content']}\n\n{file_markdown}" if cmd.get("content") else (f"{caption}\n\n{file_markdown}" if caption else file_markdown)
+                    result = await save_note_to_api(user_id, title, note_content)
+                    if result.get("status") == "success":
+                        await message.answer(f"📎 Создал новую заметку «{title}» с файлом!")
+                        return
 
         note_content = f"{caption}\n\n{file_markdown}" if caption else file_markdown
         title = caption[:50].strip() if caption else f"Файл: {doc.file_name or datetime.now().strftime('%Y-%m-%d %H:%M')}"
