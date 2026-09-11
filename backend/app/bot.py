@@ -208,9 +208,29 @@ current_bots: Dict[int, Bot] = {}
 bot_tasks: Dict[int, asyncio.Task] = {}
 token_to_user: Dict[str, int] = {} # token -> user_id
 user_usernames: Dict[int, str] = {}
+user_chat_ids: Dict[int, str] = {} # user_id -> telegram chat_id
 bot_locks: Dict[int, asyncio.Lock] = {} # Lock per user
 awaiting_passwords: Dict[str, Dict[str, Any]] = {} # chat_id -> {user_id: int, note_id: str}
 # Bot routers and dispatchers are created per-instance in start_bot via create_bot_router()
+
+async def record_user_chat_id(user_id: int, chat_id: int):
+    """Save user's Telegram chat_id in memory and auto-populate tg_admin_id in DB if not set."""
+    if not user_id or not chat_id:
+        return
+    str_chat_id = str(chat_id)
+    user_chat_ids[user_id] = str_chat_id
+    try:
+        db = SessionLocal()
+        try:
+            config = db.query(Config).filter(Config.user_id == user_id).first()
+            if config and not config.tg_admin_id:
+                config.tg_admin_id = str_chat_id
+                db.commit()
+                logger.info(f"Auto-configured tg_admin_id={str_chat_id} for user {user_id}")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error(f"Error auto-recording tg_admin_id for user {user_id}: {e}")
 
 def get_db_session():
     """Получение сессии БД"""
@@ -655,6 +675,8 @@ async def send_long_message(message: types.Message, text: str, parse_mode: str =
 # --- Bot Handlers ---
 
 async def handle_open_note(callback: types.CallbackQuery, user_id: int):
+    if callback.message:
+        await record_user_chat_id(user_id, callback.message.chat.id)
     note_id = callback.data.replace("open_note_", "")
     await callback.answer()
     result = await get_note_api(user_id, note_id)
@@ -725,9 +747,11 @@ async def handle_open_note(callback: types.CallbackQuery, user_id: int):
         await callback.message.answer("❌ Не удалось загрузить содержимое заметки.")
 
 async def handle_start(message: types.Message, user_id: int = None, admin_id: str = None):
-    await message.answer("Привет! Я твой личный помощник VibeMind. Присылай мне любые мысли, ссылки или картинки, и я сохраню их в твои заметки.")
+    await record_user_chat_id(user_id, message.chat.id)
+    await message.answer("Привет! Я твой личный помощник VibeMind. Бот подключен к вашей учетной записи — сюда будут приходить напоминания и уведомления.\n\nПрисылай мне любые мысли, ссылки, голосовые или картинки, и я сохраню их в твои заметки.")
 
 async def handle_voice(message: types.Message, user_id: int, admin_id: str = None):
+    await record_user_chat_id(user_id, message.chat.id)
     if admin_id and str(message.from_user.id) != str(admin_id): return
     await message.answer("🎙 Голосовое сообщение получено. Запускаю транскрибацию...")
     try:
@@ -750,6 +774,7 @@ async def handle_voice(message: types.Message, user_id: int, admin_id: str = Non
         await message.answer(f"❌ Ошибка при обработке голоса: {str(e)}")
 
 async def handle_photo(message: types.Message, user_id: int, admin_id: str = None):
+    await record_user_chat_id(user_id, message.chat.id)
     if admin_id and str(message.from_user.id) != str(admin_id): return
     try:
         caption = message.caption or ""
@@ -808,6 +833,7 @@ async def handle_photo(message: types.Message, user_id: int, admin_id: str = Non
         await message.answer(f"❌ Ошибка: {str(e)}")
 
 async def handle_document(message: types.Message, user_id: int, admin_id: str = None):
+    await record_user_chat_id(user_id, message.chat.id)
     if admin_id and str(message.from_user.id) != str(admin_id): return
     doc = message.document
     if not doc: return
@@ -1084,6 +1110,7 @@ async def delete_reminder_api(user_id: int, reminder_id: str) -> bool:
         return False
 
 async def handle_calendar(message: types.Message, user_id: int, admin_id: str = None):
+    await record_user_chat_id(user_id, message.chat.id)
     if admin_id and str(message.from_user.id) != str(admin_id): return
     args = message.text.split(maxsplit=1)
     sub = args[1].lower() if len(args) > 1 else "сегодня"
@@ -1145,6 +1172,7 @@ async def _show_calendar(message: types.Message, user_id: int, sub: str = "се�
 
 
 async def handle_text(message: types.Message, user_id: int, admin_id: str = None):
+    await record_user_chat_id(user_id, message.chat.id)
     if admin_id and str(message.from_user.id) != str(admin_id): return
     if message.text.startswith('/'): return
 
@@ -1345,7 +1373,7 @@ def create_bot_router() -> Router:
 router = create_bot_router()
 
 async def start_bot(user_id: int, username: str, token: str, proxy_url: str = None, proxy_config: dict = None, admin_id: str = None):
-    global current_bots, user_usernames, token_to_user, bot_tasks
+    global current_bots, user_usernames, token_to_user, bot_tasks, user_chat_ids
     
     cur_task = asyncio.current_task()
     async with get_user_lock(user_id):
@@ -1372,6 +1400,8 @@ async def start_bot(user_id: int, username: str, token: str, proxy_url: str = No
         bot_tasks[user_id] = cur_task
         token_to_user[token] = user_id
         user_usernames[user_id] = username
+        if admin_id:
+            user_chat_ids[user_id] = str(admin_id)
     if isinstance(proxy_url, str) and proxy_url.strip().startswith("{"):
         try: proxy_url = ast.literal_eval(proxy_url)
         except: pass
