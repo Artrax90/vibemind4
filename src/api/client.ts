@@ -14,6 +14,9 @@ async function handleResponse(res: Response, mockData: any) {
   if (res.status === 401) {
     console.warn('Unauthorized, clearing token');
     localStorage.removeItem('access_token');
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('auth:unauthorized'));
+    }
   }
   if (!res.ok) {
     console.warn(`API call failed (${res.status}), returning mock data`);

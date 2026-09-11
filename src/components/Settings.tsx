@@ -375,20 +375,31 @@ export default function Settings({ onClose, theme, setTheme }: SettingsProps) {
       alert(t('settings.proxyHostReq'));
       return;
     }
+    const token = localStorage.getItem('access_token');
+    if (!token) {
+      alert('Сессия истекла или вы не авторизованы. Пожалуйста, войдите в систему.');
+      window.dispatchEvent(new Event('auth:unauthorized'));
+      return;
+    }
     try {
       const response = await fetch('/api/proxy/test', {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`
+          'Authorization': `Bearer ${token}`
         },
         body: JSON.stringify({ proxy_config: proxyConfig })
       });
+      if (response.status === 401) {
+        alert('Сессия истекла. Пожалуйста, войдите в систему заново.');
+        window.dispatchEvent(new Event('auth:unauthorized'));
+        return;
+      }
       const data = await response.json();
       if (response.ok && data.status === 'success') {
         alert(t('settings.proxySuccess'));
       } else {
-        alert(`${t('settings.proxyFailed')}${data.detail || t('settings.unknownError')}`);
+        alert(`${t('settings.proxyFailed')}${data.message || data.detail || t('settings.unknownError')}`);
       }
     } catch (e) {
       alert(t('settings.proxyReqFailed'));

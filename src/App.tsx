@@ -131,6 +131,15 @@ export default function App() {
   }, [theme]);
 
   useEffect(() => {
+    const handleUnauthorized = () => {
+      setToken(null);
+      localStorage.removeItem('access_token');
+    };
+    window.addEventListener('auth:unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('auth:unauthorized', handleUnauthorized);
+  }, []);
+
+  useEffect(() => {
     if (token) {
       setIsLoading(true);
       Promise.all([api.getNotes(), api.getFolders(), api.getReminders()]).then(([fetchedNotes, fetchedFolders, fetchedReminders]) => {
