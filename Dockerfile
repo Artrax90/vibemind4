@@ -10,8 +10,9 @@ RUN npm run build
 FROM python:3.11-slim
 WORKDIR /app
 
-# Install system dependencies for PostgreSQL and compilation
-RUN apt-get update && apt-get install -y \
+# Install system dependencies for PostgreSQL and compilation (fast mirror + no recommended bloat)
+RUN (sed -i 's/deb.debian.org/mirror.yandex.ru/g' /etc/apt/sources.list.d/debian.sources 2>/dev/null || sed -i 's/deb.debian.org/mirror.yandex.ru/g' /etc/apt/sources.list 2>/dev/null || true) && \
+    apt-get update && apt-get install --no-install-recommends -y \
     libpq-dev \
     gcc \
     ffmpeg \
