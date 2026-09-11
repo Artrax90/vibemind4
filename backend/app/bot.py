@@ -223,10 +223,10 @@ async def record_user_chat_id(user_id: int, chat_id: int):
         db = SessionLocal()
         try:
             config = db.query(Config).filter(Config.user_id == user_id).first()
-            if config and not config.tg_admin_id:
+            if config and config.tg_admin_id != str_chat_id:
                 config.tg_admin_id = str_chat_id
                 db.commit()
-                logger.info(f"Auto-configured tg_admin_id={str_chat_id} for user {user_id}")
+                logger.info(f"Updated tg_admin_id={str_chat_id} for user {user_id}")
         finally:
             db.close()
     except Exception as e:

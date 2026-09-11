@@ -76,14 +76,7 @@ export default function NotificationsPanel({ onNoteClick }: { onNoteClick: (id: 
             }
           }
 
-          // Persist is_sent = 1 to database so it never fires again
-          try {
-            if ((api as any).saveReminder) {
-              await (api as any).saveReminder({ ...r, is_sent: 1 });
-            }
-          } catch (e) {
-            console.error('Failed to persist reminder sent state:', e);
-          }
+
         }
       }
 

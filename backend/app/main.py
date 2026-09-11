@@ -9,6 +9,7 @@ from sqlalchemy import create_engine, text, or_, inspect
 from sqlalchemy.orm import sessionmaker
 import asyncio
 import os
+import time
 import logging
 import httpx
 import uuid
@@ -262,8 +263,14 @@ async def _cleanup_stale_reminders(db):
 async def check_reminders():
     """Background task to check and send due reminders via Telegram."""
     reminder_failures = {}
+    last_heartbeat = 0.0
     while True:
         try:
+            now_ts = time.time()
+            if now_ts - last_heartbeat >= 60.0:
+                logger.info(f"check_reminders heartbeat: running at {datetime.now().isoformat()}")
+                last_heartbeat = now_ts
+
             db = SessionLocal()
             try:
                 # One-time cleanup of abandoned reminders
@@ -288,7 +295,7 @@ async def check_reminders():
                         # Parse remind_at to datetime to verify freshness
                         remind_dt = None
                         try:
-                            clean_dt = reminder.remind_at.replace("Z", "").split("+")[0]
+                            clean_dt = reminder.remind_at.replace("Z", "").split("+")[0].replace(" ", "T")
                             remind_dt = datetime.fromisoformat(clean_dt)
                             if remind_dt.tzinfo is not None:
                                 remind_dt = remind_dt.astimezone().replace(tzinfo=None)
@@ -315,7 +322,7 @@ async def check_reminders():
                             continue
 
                         # Resolve chat/admin ID
-                        admin_id = config.tg_admin_id or user_chat_ids.get(user_id)
+                        admin_id = user_chat_ids.get(user_id) or config.tg_admin_id
                         if not admin_id:
                             logger.warning(f"Reminder {reminder.id} skipped: no chat ID for user {user_id}. User needs to /start the bot in Telegram.")
                             fails = reminder_failures.get(reminder.id, 0) + 1
@@ -325,6 +332,9 @@ async def check_reminders():
                                 reminder.is_sent = 2
                                 db.commit()
                             continue
+
+                        if config.tg_admin_id and user_id not in user_chat_ids:
+                            user_chat_ids[user_id] = str(config.tg_admin_id)
 
                         # Get or initialize bot instance
                         bot_instance = current_bots.get(user_id)
@@ -364,7 +374,16 @@ async def check_reminders():
                         tg_message += f"\n⏰ <i>{time_display}</i>"
 
                         # Send Telegram message
-                        await bot_instance.send_message(chat_id=admin_id, text=tg_message, parse_mode="HTML")
+                        try:
+                            await bot_instance.send_message(chat_id=admin_id, text=tg_message, parse_mode="HTML")
+                        except Exception as html_err:
+                            logger.warning(f"Failed sending HTML message for reminder {reminder.id}, falling back to plain text: {html_err}")
+                            plain_msg = f"🔔 {note_title or 'Напоминание'}\n"
+                            if reminder.message and reminder.message != note_title:
+                                plain_msg += f"💬 {reminder.message}\n"
+                            plain_msg += f"⏰ {time_display}"
+                            await bot_instance.send_message(chat_id=admin_id, text=plain_msg)
+
                         logger.info(f"✅ Reminder {reminder.id} successfully sent to chat {admin_id}")
 
                         # MARK AS SENT ONLY AFTER SUCCESSFUL DELIVERY
@@ -461,12 +480,29 @@ async def check_reminders():
         except Exception as e:
             logger.error(f"Reminder checker error: {e}")
 
-        # Check every 15 seconds
-        await asyncio.sleep(15)
+        # Check every 5 seconds
+        await asyncio.sleep(5)
+
+_background_tasks = set()
+
+async def reminder_checker_supervisor():
+    """Supervises the check_reminders background worker, restarting it if it ever dies."""
+    logger.info("reminder_checker_supervisor started.")
+    while True:
+        try:
+            await check_reminders()
+        except asyncio.CancelledError:
+            logger.info("reminder_checker_supervisor: worker cancelled.")
+            break
+        except Exception as e:
+            logger.error(f"reminder_checker_supervisor: check_reminders crashed with error: {e}", exc_info=True)
+        await asyncio.sleep(5)
 
 @app.on_event("startup")
 async def start_reminder_checker():
-    asyncio.create_task(check_reminders())
+    task = asyncio.create_task(reminder_checker_supervisor(), name="reminder_checker_supervisor")
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
 
 def get_db():
     db = SessionLocal()
@@ -2251,7 +2287,7 @@ class ReminderCreate(BaseModel):
 
 @app.post("/api/reminders")
 async def create_reminder(reminder: ReminderCreate, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    clean_remind_at = reminder.remind_at.replace("Z", "").split("+")[0]
+    clean_remind_at = reminder.remind_at.replace("Z", "").split("+")[0].replace(" ", "T")
     existing = None
     if reminder.id:
         existing = db.query(Reminder).filter(Reminder.id == reminder.id, Reminder.user_id == current_user.id).first()
@@ -2264,10 +2300,14 @@ async def create_reminder(reminder: ReminderCreate, db: Session = Depends(get_db
         ).first()
 
     if existing:
-        if reminder.is_sent is not None:
-            existing.is_sent = reminder.is_sent
-        elif existing.remind_at != clean_remind_at:
+        # If user changed the remind_at time or explicitly requested reset, mark unsent
+        if existing.remind_at != clean_remind_at:
             existing.is_sent = 0
+        elif reminder.is_sent == 0:
+            existing.is_sent = 0
+        # If reminder is pending delivery (is_sent == 0), DO NOT allow external clients
+        # to mark it as sent (is_sent == 1). Only the backend Telegram worker marks it sent.
+
         existing.note_id = reminder.note_id
         existing.remind_at = clean_remind_at
         existing.repeat_type = reminder.repeat_type
@@ -2282,7 +2322,7 @@ async def create_reminder(reminder: ReminderCreate, db: Session = Depends(get_db
         remind_at=clean_remind_at,
         repeat_type=reminder.repeat_type,
         message=reminder.message,
-        is_sent=reminder.is_sent if reminder.is_sent is not None else 0,
+        is_sent=0,  # All newly created reminders start as unsent
         created_at=datetime.now().isoformat()
     )
     db.add(new_reminder)
