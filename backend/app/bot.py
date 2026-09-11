@@ -299,7 +299,7 @@ async def parse_commands_llm(user_id: int, text: str, notes: list[dict] = None) 
     
     if not api_key and provider != "gemini": # Gemini might use env key
         logger.warning("API key not found, falling back to regex parser")
-        return parse_commands(text)
+        return parse_commands(text, notes)
             
     try:
         user_content = f"notes:\n{json.dumps(notes, ensure_ascii=False)}\n\n\"{text}\""
@@ -389,38 +389,137 @@ async def parse_commands_llm(user_id: int, text: str, notes: list[dict] = None) 
         return []
     except Exception as e:
         logger.error(f"LLM Parsing error: {e}")
-        return parse_commands(text)
+        return parse_commands(text, notes)
+
+def russian_stem(word: str) -> str:
+    word = word.lower().strip()
+    if len(word) <= 3:
+        return word
+    endings = [
+        'ами', 'ями', 'ов', 'ев', 'ей', 'ам', 'ям', 'ах', 'ях', 
+        'ом', 'ем', 'ой', 'ей', 'ие', 'ые', 'ого', 'его', 'ому', 
+        'ему', 'ым', 'им', 'ую', 'юю', 'ая', 'яя', 'ое', 'ее', 
+        'ых', 'их', 'ы', 'и', 'а', 'я', 'у', 'ю', 'о', 'е', 'ь'
+    ]
+    for end in endings:
+        if word.endswith(end) and len(word) - len(end) >= 3:
+            return word[:-len(end)]
+    return word
+
+def words_stem_match(w1: str, w2: str) -> bool:
+    w1, w2 = w1.lower().strip(), w2.lower().strip()
+    if w1 == w2:
+        return True
+    if russian_stem(w1) == russian_stem(w2):
+        return True
+    if len(w1) >= 4 and len(w2) >= 4:
+        if difflib.SequenceMatcher(None, w1, w2).ratio() >= 0.8:
+            return True
+    return False
+
+def find_matching_note(cleaned: str, notes: list[dict] = None) -> tuple[Optional[dict], Optional[str]]:
+    """
+    Find matching note from existing notes and extract remaining append text.
+    Returns (matched_note, append_text) or (None, None).
+    """
+    if not notes or not cleaned:
+        return None, None
+
+    cleaned_words = cleaned.split()
+    if not cleaned_words:
+        return None, None
+
+    # 1. Check if sentence has " ... в/на/к <note_title>" pattern (e.g. "игра престолов в сериалы")
+    end_match = re.search(r'^(.*?)\s+(?:в|на|к)\s+(?:заметку\s+)?(.+)$', cleaned, re.IGNORECASE)
+    if end_match:
+        content_candidate = end_match.group(1).strip()
+        title_candidate = end_match.group(2).strip()
+        title_words = title_candidate.split()
+        for note in notes:
+            n_title = note.get("title", "").strip()
+            if not n_title: continue
+            n_words = n_title.split()
+            if len(title_words) == len(n_words) and all(words_stem_match(tw, nw) for tw, nw in zip(title_words, n_words)):
+                return note, content_candidate
+
+    # 2. Check if text starts with note title (e.g. "сериала игра престолов", "список покупок молоко")
+    sorted_notes = sorted(notes, key=lambda n: len(n.get("title", "").split()), reverse=True)
+
+    for note in sorted_notes:
+        n_title = note.get("title", "").strip()
+        if not n_title: continue
+        n_words = n_title.split()
+        n_len = len(n_words)
+
+        if len(cleaned_words) >= n_len:
+            prefix_words = cleaned_words[:n_len]
+            if all(words_stem_match(pw, nw) for pw, nw in zip(prefix_words, n_words)):
+                append_text = " ".join(cleaned_words[n_len:]).strip()
+                return note, append_text
+
+    # 3. Fuzzy match single-word titles
+    best_note = None
+    best_append = None
+    best_score = 0
+    for note in notes:
+        n_title = note.get("title", "").strip()
+        if not n_title: continue
+        n_words = n_title.split()
+        if len(n_words) == 1 and len(cleaned_words) >= 1:
+            ratio = difflib.SequenceMatcher(None, russian_stem(cleaned_words[0]), russian_stem(n_words[0])).ratio()
+            if ratio > 0.75 and ratio > best_score:
+                best_score = ratio
+                best_note = note
+                best_append = " ".join(cleaned_words[1:]).strip()
+
+    if best_note:
+        return best_note, best_append
+
+    return None, None
 
 def normalize_intent(text: str) -> str:
     if not text:
         return text
+
+    # Handle inverted phrasing: "в (заметку) X добавь/запиши Y" -> "добавь в X Y"
+    v_match = re.match(r'^в\s+(?:заметку\s+)?([^\s]+)\s+(?:добавь|добавьте|запиши|записать|допиши|дописать)\s+(.*)$', text, re.IGNORECASE)
+    if v_match:
+        return f"добавь в {v_match.group(1)} {v_match.group(2)}"
+
     words = text.split()
     if not words:
         return text
         
     first_word = words[0].lower()
     intents = {
-        "создай": "создай", "создать": "создай", 
-        "добавь": "добавь", "добавить": "добавь", 
-        "удали": "удали", "удалить": "удали", 
-        "найди": "найди", "найти": "найди", "поиск": "найди"
+        "создай": "создай", "создать": "создай", "создайте": "создай",
+        "добавь": "добавь", "добавить": "добавь", "добавьте": "добавь",
+        "запиши": "добавь", "записать": "добавь", "запишите": "добавь",
+        "допиши": "добавь", "дописать": "добавь", "допишите": "добавь",
+        "впиши": "добавь", "вписать": "добавь", "впишите": "добавь",
+        "удали": "удали", "удалить": "удали", "удалите": "удали",
+        "найди": "найди", "найти": "найди", "найдите": "найди", 
+        "поищи": "найди", "поиск": "найди", "покажи": "найди", "покажите": "найди"
     }
     
+    if first_word in intents:
+        words[0] = intents[first_word]
+        return " ".join(words)
+
     best_match = None
     best_ratio = 0
-    
     for intent in intents.keys():
         ratio = difflib.SequenceMatcher(None, first_word, intent).ratio()
         if ratio > best_ratio:
             best_ratio = ratio
             best_match = intents[intent]
             
-    if best_ratio > 0.8:
+    if best_ratio > 0.75:
         words[0] = best_match
         return " ".join(words)
     return text
 
-def parse_commands(text: str) -> list[dict]:
+def parse_commands(text: str, notes: list[dict] = None) -> list[dict]:
     text = text.lower()
     text = normalize_intent(text)
     
@@ -465,7 +564,17 @@ def parse_commands(text: str) -> list[dict]:
             if not is_valid_title(title):
                 commands.append({"type": "SEARCH", "query": clean_garbage(part)})
             else:
-                commands.append({"type": "CREATE", "title": title, "content": ""})
+                # Anti-duplicate: check if note already exists
+                existing_note = None
+                if notes:
+                    for n in notes:
+                        if words_stem_match(n.get("title", ""), title):
+                            existing_note = n
+                            break
+                if existing_note:
+                    commands.append({"type": "UPDATE", "note_id": existing_note["id"], "append": ""})
+                else:
+                    commands.append({"type": "CREATE", "title": title, "content": ""})
         elif part.startswith("добавь"):
             if i > 0 and commands and commands[-1]["type"] == "CREATE":
                 append_text = re.sub(r'^добавь\s+(в\s+)?', '', part).strip()
@@ -474,16 +583,26 @@ def parse_commands(text: str) -> list[dict]:
             else:
                 cleaned = re.sub(r'^добавь\s+(в\s+)?', '', part).strip()
                 cleaned = clean_garbage(cleaned)
-                subparts = cleaned.split(maxsplit=1)
-                if len(subparts) == 2:
-                    search_query = subparts[0]
-                    append_text = subparts[1]
-                    if not is_valid_title(search_query):
-                        commands.append({"type": "SEARCH", "query": clean_garbage(part)})
-                    else:
-                        commands.append({"type": "UPDATE", "search_query": search_query, "append": append_text})
+                
+                # Try matching against existing user notes
+                matched_note, append_text = find_matching_note(cleaned, notes)
+                if matched_note and append_text is not None:
+                    commands.append({
+                        "type": "UPDATE",
+                        "note_id": matched_note.get("id"),
+                        "append": append_text
+                    })
                 else:
-                    commands.append({"type": "UPDATE", "search_query": cleaned, "append": cleaned})
+                    subparts = cleaned.split(maxsplit=1)
+                    if len(subparts) == 2:
+                        search_query = subparts[0]
+                        append_text = subparts[1]
+                        if not is_valid_title(search_query):
+                            commands.append({"type": "SEARCH", "query": clean_garbage(part)})
+                        else:
+                            commands.append({"type": "UPDATE", "search_query": search_query, "append": append_text})
+                    else:
+                        commands.append({"type": "UPDATE", "search_query": cleaned, "append": cleaned})
         elif part.startswith("найди") or part.startswith("покажи") or part.startswith("что есть про"):
             query = re.sub(r'^(найди|покажи|что есть про)\s*', '', part).strip()
             query = clean_garbage(query)
@@ -1281,7 +1400,7 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
             # Anti-duplicate fallback:
             existing_note_id = None
             for n in notes:
-                if str(n.get("title", "")).strip().lower() == title.strip().lower():
+                if words_stem_match(n.get("title", ""), title):
                     existing_note_id = n.get("id")
                     break
             
@@ -1306,8 +1425,18 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
         elif intent == "UPDATE":
             target_id = cmd.get("note_id") or chain_note_id
             if not target_id and cmd.get("search_query"):
-                res = await search_api(user_id, cmd.get("search_query"))
-                if res.get("status") == "success" and res.get("data"): target_id = res["data"][0].get('id')
+                sq = cmd.get("search_query")
+                res = await search_api(user_id, sq)
+                if res.get("status") == "success" and res.get("data"):
+                    target_id = res["data"][0].get('id')
+
+                # Second fallback: match against in-memory notes using words_stem_match
+                if not target_id and notes:
+                    for n in notes:
+                        if words_stem_match(n.get("title", ""), sq):
+                            target_id = n.get("id")
+                            break
+
             if target_id:
                 append = cmd.get("append", "")
                 if isinstance(append, list): append = "\n- " + "\n- ".join(append)
@@ -1317,7 +1446,18 @@ async def handle_text(message: types.Message, user_id: int, admin_id: str = None
                     await message.answer(f"✅ Добавил текст в заметку «{res['data'].get('title')}»!")
                     chain_note_id = target_id
                 else: await message.answer(f"❌ Ошибка: {res.get('message')}")
-            else: await message.answer("Не нашёл подходящую заметку.")
+            else:
+                # If note does not exist yet, create it and append text!
+                new_title = cmd.get("search_query") or "Новая заметка"
+                append = cmd.get("append", "")
+                if isinstance(append, list): append = "\n- " + "\n- ".join(append)
+                res = await save_note_to_api(user_id, new_title, append)
+                if res.get("status") == "success":
+                    chain_note_id = res.get("note_id")
+                    logger.info(f"Создана новая заметка: {new_title} (ID: {chain_note_id})")
+                    await message.answer(f"📝 Создал новую заметку «{new_title}» и добавил текст!")
+                else:
+                    await message.answer("Не нашёл подходящую заметку.")
         elif intent == "SEARCH":
             query = cmd.get("query", "")
             if not query: continue

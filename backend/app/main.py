@@ -872,12 +872,31 @@ async def import_notes(file: UploadFile = File(...), background_tasks: Backgroun
 
     return {"status": "success", "count": count}
 
+def russian_stem(word: str) -> str:
+    word = word.lower().strip()
+    if len(word) <= 3:
+        return word
+    endings = [
+        'ами', 'ями', 'ов', 'ев', 'ей', 'ам', 'ям', 'ах', 'ях', 
+        'ом', 'ем', 'ой', 'ей', 'ие', 'ые', 'ого', 'его', 'ому', 
+        'ему', 'ым', 'им', 'ую', 'юю', 'ая', 'яя', 'ое', 'ее', 
+        'ых', 'их', 'ы', 'и', 'а', 'я', 'у', 'ю', 'о', 'е', 'ь'
+    ]
+    for end in endings:
+        if word.endswith(end) and len(word) - len(end) >= 3:
+            return word[:-len(end)]
+    return word
+
 @app.get("/api/notes/search")
 async def search(query: str, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     accessible_ids = get_user_accessible_note_ids(current_user.id, db)
     if not accessible_ids:
         return []
     notes = db.query(Note).filter(Note.id.in_(accessible_ids), or_(Note.title.ilike(f"%{query}%"), Note.content.ilike(f"%{query}%"))).limit(20).all()
+    if not notes:
+        stem = russian_stem(query)
+        if stem and stem != query.lower():
+            notes = db.query(Note).filter(Note.id.in_(accessible_ids), or_(Note.title.ilike(f"%{stem}%"), Note.content.ilike(f"%{stem}%"))).limit(20).all()
     res = []
     for n in notes:
         is_protected = is_folder_protected(n.folderId, db) if n.folderId else False
