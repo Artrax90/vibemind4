@@ -416,7 +416,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
             </button>
           )}
 
-          {onShare && note.permission === 'owner' && (
+          {onShare && (!note.permission || note.permission === 'owner') && (
             <button
               onClick={onShare}
               className="p-2 text-muted-foreground hover:text-primary rounded-lg transition-colors"
@@ -462,7 +462,7 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
           </>
           )}
 
-          {note.permission === 'owner' && (
+          {(!note.permission || note.permission === 'owner') && (
             <button
               onClick={async () => {
                 if ((note.content || '').includes('published:')) {

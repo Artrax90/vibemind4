@@ -11,9 +11,10 @@ type ShareModalProps = {
   resourceType: 'note' | 'folder' | null;
   resourceName: string | null;
   baseUrl?: string;
+  onShareStatusChange?: (isShared: boolean) => void;
 };
 
-export default function ShareModal({ isOpen, onClose, resourceId, resourceType, resourceName, baseUrl }: ShareModalProps) {
+export default function ShareModal({ isOpen, onClose, resourceId, resourceType, resourceName, baseUrl, onShareStatusChange }: ShareModalProps) {
   const { t } = useLanguage();
   const panelRef = useRef<HTMLDivElement>(null);
   const [copied, setCopied] = useState(false);
@@ -80,6 +81,7 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
       if (result && result.id) {
         setShareId(result.id);
         setShared(true);
+        onShareStatusChange?.(true);
         // Update local note/folder to show share icon
         if (resourceType === 'note') {
           api.updateNote(resourceId, { isSharedByMe: true });
@@ -98,6 +100,7 @@ export default function ShareModal({ isOpen, onClose, resourceId, resourceType, 
       await api.deleteShare(shareId);
       setShared(false);
       setShareId(null);
+      onShareStatusChange?.(false);
       // Clear share icon from local note
       if (resourceType === 'note') {
         api.updateNote(resourceId, { isSharedByMe: false });

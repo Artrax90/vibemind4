@@ -4,7 +4,7 @@ import { useLanguage } from '../contexts/LanguageContext';
 
 type ShapeType = 'sticky' | 'text' | 'rect' | 'rounded' | 'circle' | 'diamond' | 'triangle' | 'hexagon' | 'star' | 'parallelogram';
 type Item = {
-  id: string; type: ShapeType | 'image' | 'line' | 'curve';
+  id: string; type: ShapeType | 'image' | 'line' | 'curve' | 'frame';
   x: number; y: number; w: number; h: number;
   text: string; color: string; textColor?: string;
   fontSize?: number; fontFamily?: string; bold?: boolean; italic?: boolean; underline?: boolean;
@@ -13,7 +13,7 @@ type Item = {
   points?: string;
 };
 type BoardData = { items: Item[] };
-type Tool = 'select' | ShapeType | 'curve' | 'connect' | 'frame';
+type Tool = 'select' | ShapeType | 'curve' | 'connect' | 'frame' | 'shape';
 type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
 const PALETTE = ['#fef3c7', '#dbeafe', '#dcfce7', '#fce7f3', '#f3e8ff', '#e0f2fe', '#fed7aa', '#d1fae5', '#fecaca', '#e0e7ff'];
 const SHAPE_KEYS: { type: ShapeType; key: string }[] = [
@@ -123,7 +123,7 @@ export default function BoardEditor({ content, title: boardTitle, onChange, onTi
   const [presenting, setPresenting] = useState<number>(-1);
   const lastClickedItemId = useRef<string | null>(null);
   const contentRef = useRef(content); contentRef.current = content;
-  const editInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
+  const editInputRef = useRef<any>(null);
   const editJustSetRef = useRef(false);
   const [modalType, setModalType] = useState<'share' | 'reminder' | 'publish' | null>(null);
   const [ModalComp, setModalComp] = useState<React.ComponentType<any> | null>(null);
@@ -782,7 +782,7 @@ export default function BoardEditor({ content, title: boardTitle, onChange, onTi
           return i.x + i.w / 2 >= f.x && i.x + i.w / 2 <= f.x + f.w && i.y + i.h / 2 >= f.y && i.y + i.h / 2 <= f.y + f.h;
         });
         return (
-          <div className="fixed inset-0 z-50 bg-black" ref={el => el && setTimeout(() => el.focus(), 0)} tabIndex={0}
+          <div className="fixed inset-0 z-50 bg-black" ref={el => { if (el) setTimeout(() => el.focus(), 0); }} tabIndex={0}
             onKeyDown={e => { if (e.key === 'Escape') setPresenting(-1); if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); nav(1); } if (e.key === 'ArrowLeft') { e.preventDefault(); nav(-1); } }}
             onMouseDown={e => { const r = e.currentTarget.getBoundingClientRect(); if (e.clientX > r.left + r.width * 0.7) nav(1); else if (e.clientX < r.left + r.width * 0.3) nav(-1); }}
             style={{ outline: 'none' }}>

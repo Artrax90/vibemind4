@@ -472,7 +472,7 @@ export default function App() {
                   return cells.map((day, i) => {
                     if (!day) return <div key={i} />;
                     const dateStr = `${calYear}-${String(calMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                    const dayNotes = notes.filter(n => ((n as any).updated_at || '').startsWith(dateStr));
+                    const dayNotes = notes.filter(n => ((n as any).created_at || (n as any).createdAt || '').startsWith(dateStr) || ((n as any).updated_at || (n as any).updatedAt || '').startsWith(dateStr));
                     const dayReminders = reminders.filter(r => isReminderOnDate(r, dateStr));
                     const seenReminderKeys = new Set<string>();
                     const uniqueDayReminders = dayReminders.filter(r => {
@@ -485,10 +485,11 @@ export default function App() {
                     const expanded = expandedDay === dateStr;
                     const today = new Date();
                     const isToday = today.getDate() === day && today.getMonth() === calMonth && today.getFullYear() === calYear;
+                    const isRightCol = (i % 7) >= 4;
                     return (
                       <div key={i} className="relative">
                         <div onClick={(e) => { e.stopPropagation(); setExpandedDay(expanded ? null : dateStr); }}
-                          className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-1 ring-primary/30' : uniqueDayReminders.length > 0 ? 'border-violet-500/80 bg-violet-200 ring-2 ring-violet-400/60 dark:bg-violet-950/20 dark:ring-violet-300/30' : allItems.length > 0 ? 'border-primary/30 bg-primary/5' : 'border-border/30'} ${expanded ? 'shadow-lg' : ''}`}>
+                          className={`rounded-lg border p-2 min-h-[80px] transition-all duration-200 cursor-pointer hover:shadow-md ${isToday ? 'border-primary ring-2 ring-primary/40 bg-primary/5 font-semibold' : uniqueDayReminders.length > 0 ? 'border-violet-500/40 bg-violet-500/10 ring-1 ring-violet-500/20 dark:bg-violet-950/30 dark:border-violet-400/30' : allItems.length > 0 ? 'border-border/60 bg-muted/20' : 'border-border/30 hover:border-border/60'} ${expanded ? 'shadow-lg ring-1 ring-primary/30' : ''}`}>
                           <div className="text-xs font-medium text-muted-foreground mb-1">{day}</div>
                           {allItems.slice(0, 2).map(item => (
                             <div key={item.type + item.id} className="text-xs truncate text-foreground/80 flex items-center gap-1">
@@ -502,14 +503,14 @@ export default function App() {
                         </div>
                         <AnimatePresence>
                           {expanded && (
-                            <motion.div initial={{ opacity: 0, y: -4, scaleY: 0.8 }} animate={{ opacity: 1, y: 4, scaleY: 1 }} exit={{ opacity: 0, y: -4, scaleY: 0.8 }}
-                              transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-                              className="absolute left-0 right-0 top-full z-50 bg-background border border-border/50 rounded-xl shadow-xl p-3 space-y-1"
-                              style={{ transformOrigin: 'top' }} onClick={(e) => e.stopPropagation()}>
-                              <div className="flex items-center justify-between mb-2">
-                                <div className="text-xs font-medium text-muted-foreground">{day} — {allItems.length} элементов</div>
+                            <motion.div initial={{ opacity: 0, y: -4, scale: 0.95 }} animate={{ opacity: 1, y: 4, scale: 1 }} exit={{ opacity: 0, y: -4, scale: 0.95 }}
+                              transition={{ duration: 0.15, ease: 'easeOut' }}
+                              className={`absolute ${isRightCol ? 'right-0' : 'left-0'} top-full mt-1 z-50 w-72 max-w-[90vw] bg-background/95 backdrop-blur border border-border/60 rounded-xl shadow-2xl p-3 space-y-1.5`}
+                              style={{ transformOrigin: isRightCol ? 'top right' : 'top left' }} onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-between gap-2 mb-2 pb-1.5 border-b border-border/40">
+                                <div className="text-xs font-semibold text-foreground truncate">{day} — {allItems.length} {allItems.length === 1 ? 'элемент' : allItems.length > 4 ? 'элементов' : 'элемента'}</div>
                                 <button onClick={(e) => { e.stopPropagation(); setCalReminderDate(dateStr); setShowCalendarReminder(true); setExpandedDay(null); }}
-                                  className="flex items-center gap-1 text-[10px] text-primary hover:text-primary/80 font-medium transition-colors">
+                                  className="flex items-center gap-1 text-[11px] text-primary hover:text-primary/80 font-medium transition-colors shrink-0 bg-primary/10 hover:bg-primary/20 px-2 py-0.5 rounded-md">
                                   <Plus size={12} /> Напоминание
                                 </button>
                               </div>

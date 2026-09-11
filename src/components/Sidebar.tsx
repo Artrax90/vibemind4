@@ -180,7 +180,7 @@ function DroppableFolder({ folder, isExpanded, isSelected, isRenaming, renameVal
         </div>
         {!isRenaming && (
           <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-            {folder.permission === 'owner' && (
+            {(!folder.permission || folder.permission === 'owner') && (
               <>
                 <button 
                   onClick={(e) => { e.stopPropagation(); onShare('folder', folder.id); }}
@@ -846,8 +846,8 @@ export default function Sidebar({ notes, folders, unlockedFolders, setUnlockedFo
                   })()}
               </>
             )}
-            {((contextMenu.type === 'note' && notes.find(n => n.id === contextMenu.id)?.permission === 'owner') || 
-              (contextMenu.type === 'folder' && folders.find(f => f.id === contextMenu.id)?.permission === 'owner')) && (
+            {((contextMenu.type === 'note' && (!notes.find(n => n.id === contextMenu.id)?.permission || notes.find(n => n.id === contextMenu.id)?.permission === 'owner')) || 
+              (contextMenu.type === 'folder' && (!folders.find(f => f.id === contextMenu.id)?.permission || folders.find(f => f.id === contextMenu.id)?.permission === 'owner'))) && (
               <button 
                 onClick={() => {
                   if (contextMenu.type === 'note') onDeleteNote(contextMenu.id);

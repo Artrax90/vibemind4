@@ -319,19 +319,19 @@ export default function BentoGrid({ notes, folders, activeNoteId, onNoteClick, f
 
               {/* Drag handle */}
               <div className="absolute top-2 right-2 z-20 opacity-0 group-hover:opacity-100 transition-opacity">
-                <GripVertical size={16} className="text-white/60 drop-shadow" />
+                <GripVertical size={16} className={(embed || image) ? 'text-white/70 drop-shadow' : 'text-foreground/50'} />
               </div>
 
               {/* Content overlay */}
               <div className="absolute inset-0 p-4 flex flex-col justify-between">
                 <div className="flex items-start justify-between">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-white/80 bg-white/15 backdrop-blur-sm rounded-full px-2.5 py-1 ring-1 ring-white/10">
+                  <span className={`text-[10px] font-semibold uppercase tracking-wider rounded-full px-2.5 py-1 ring-1 ${(embed || image) ? 'text-white/90 bg-black/40 ring-white/20 backdrop-blur-sm' : isDark ? 'text-white/80 bg-white/10 ring-white/10' : 'text-foreground/80 bg-black/5 ring-black/10'}`}>
                     {note.folderId
                       ? folders.find(f => f.id === note.folderId)?.name || (board ? t('bento.board') : t('bento.note'))
                       : board ? t('bento.board') : t('bento.note')}
                   </span>
                   {note.isPinned && (
-                    <span className="text-white/80">
+                    <span className="text-amber-500 drop-shadow-sm">
                       <Star size={14} className="fill-current" />
                     </span>
                   )}
@@ -346,14 +346,22 @@ export default function BentoGrid({ notes, folders, activeNoteId, onNoteClick, f
                       {excerpt}
                     </p>
                   )}
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <div className="flex items-center gap-1.5">
-                      <Clock size={10} className={(embed || image) ? 'text-white/50' : 'text-muted-foreground/50'} />
-                      <span className={`text-[10px] ${(embed || image) ? 'text-white/50' : 'text-muted-foreground/60'}`}>
-                        {new Date(note.updated_at || (note as any).created_at || '').toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
-                      </span>
-                    </div>
-                  </div>
+                  {(() => {
+                    const rawDate = note.updated_at || (note as any).created_at || (note as any).updatedAt || (note as any).createdAt;
+                    const dateObj = rawDate ? new Date(rawDate) : null;
+                    const isValidDate = dateObj && !isNaN(dateObj.getTime());
+                    if (!isValidDate) return null;
+                    return (
+                      <div className="flex items-center gap-3 flex-wrap">
+                        <div className="flex items-center gap-1.5">
+                          <Clock size={10} className={(embed || image) ? 'text-white/60' : 'text-muted-foreground/60'} />
+                          <span className={`text-[10px] ${(embed || image) ? 'text-white/60' : 'text-muted-foreground/70'}`}>
+                            {dateObj.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             </div>

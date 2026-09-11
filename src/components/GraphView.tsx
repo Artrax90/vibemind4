@@ -42,7 +42,7 @@ export default function GraphView({ notes, activeNoteId, onNodeClick }: GraphVie
   const allTags = React.useMemo(() => {
     const tagSet = new Set<string>();
     notes.forEach(n => {
-      const matches = (n.content || '').match(/#[a-zA-Zа-яА-Я]+/g) || [];
+      const matches: string[] = (n.content || '').match(/#[a-zA-Zа-яА-Я]+/g) || [];
       matches.forEach(t => tagSet.add(t.toLowerCase()));
     });
     return Array.from(tagSet).sort();

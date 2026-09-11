@@ -202,9 +202,12 @@ export default function CanvasView({ notes, activeNoteId, onNoteClick, onAddNote
                 </p>
               </div>
               <div className="px-4 pb-3 flex items-center justify-between">
-                <span className="text-[10px] text-muted-foreground/50">
-                  {new Date(note.updated_at || '').toLocaleDateString('ru-RU')}
-                </span>
+                {(() => {
+                  const rawDate = note.updated_at || (note as any).created_at || (note as any).updatedAt || (note as any).createdAt;
+                  const dateObj = rawDate ? new Date(rawDate) : null;
+                  const dateText = dateObj && !isNaN(dateObj.getTime()) ? dateObj.toLocaleDateString('ru-RU') : '';
+                  return <span className="text-[10px] text-muted-foreground/50">{dateText}</span>;
+                })()}
                 {note.isPinned && <span className="text-yellow-500 text-xs">★</span>}
               </div>
             </div>
