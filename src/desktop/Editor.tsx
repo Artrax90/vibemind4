@@ -1,13 +1,108 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from './client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Strikethrough, Highlighter, Underline, Quote, ChevronDown, Superscript, Subscript, EyeOff } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Check, Copy, Strikethrough, Highlighter, Underline, Quote, ChevronDown, Superscript, Subscript, EyeOff } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import remarkBreaks from 'remark-breaks';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { useLanguage } from '../contexts/LanguageContext';
+
+function CodeBlock({ children }: { children?: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+
+  let codeString = '';
+  let language = '';
+
+  if (React.isValidElement(children)) {
+    const childProps = children.props as { className?: string; children?: React.ReactNode };
+    const className = childProps?.className || '';
+    const match = /language-(\w+)/.exec(className);
+    if (match) {
+      language = match[1];
+    }
+
+    if (childProps?.children) {
+      if (typeof childProps.children === 'string') {
+        codeString = childProps.children;
+      } else if (Array.isArray(childProps.children)) {
+        codeString = childProps.children.map(c => (typeof c === 'string' ? c : '')).join('');
+      } else {
+        codeString = String(childProps.children);
+      }
+    }
+  } else if (children) {
+    codeString = String(children);
+  }
+
+  codeString = codeString.replace(/\n$/, '');
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(codeString);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = codeString;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy code: ', err);
+    }
+  };
+
+  return (
+    <div className="relative group/code rounded-xl border border-border/50 my-4 bg-muted/40 dark:bg-muted/20 overflow-hidden">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-sans font-medium text-muted-foreground hover:text-foreground bg-secondary/80 hover:bg-secondary border border-border/60 backdrop-blur-md shadow-xs transition-all cursor-pointer select-none"
+        title={copied ? 'Скопировано!' : 'Копировать'}
+      >
+        {copied ? (
+          <>
+            <Check size={13} className="text-emerald-500" />
+            <span className="text-emerald-500 font-medium">Скопировано!</span>
+          </>
+        ) : (
+          <>
+            <Copy size={13} />
+            <span className="hidden sm:inline">Копировать</span>
+          </>
+        )}
+      </button>
+
+      {language ? (
+        <SyntaxHighlighter
+          style={vscDarkPlus as any}
+          language={language}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            padding: '1rem',
+            paddingRight: '6rem',
+            backgroundColor: 'transparent',
+            fontSize: '0.875rem',
+            lineHeight: '1.6',
+          }}
+        >
+          {codeString}
+        </SyntaxHighlighter>
+      ) : (
+        <pre className="p-4 pr-24 overflow-x-auto text-sm font-mono text-foreground/90 m-0 leading-relaxed font-normal">
+          <code>{codeString}</code>
+        </pre>
+      )}
+    </div>
+  );
+}
 
 type EditorProps = {
   note: Note;
@@ -558,15 +653,13 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
               <ReactMarkdown 
                 remarkPlugins={[remarkGfm, remarkBreaks]}
                 components={{
-                  code({node, inline, className, children, ...props}: any) {
-                    const match = /language-(\w+)/.exec(className || '')
-                    return !inline && match ? (
-                      <SyntaxHighlighter style={vscDarkPlus as any} language={match[1]} PreTag="div" className="rounded-lg border border-border/50" {...props}>
-                        {String(children).replace(/\n$/, '')}
-                      </SyntaxHighlighter>
-                    ) : (
-                      <code className="bg-secondary px-1 rounded" {...props}>{children}</code>
-                    )
+                  pre: CodeBlock,
+                  code({node, className, children, ...props}: any) {
+                    return (
+                      <code className={className || "bg-secondary px-1 rounded"} {...props}>
+                        {children}
+                      </code>
+                    );
                   },
                   p({children}) {
                     const childrenArray = React.Children.toArray(children);

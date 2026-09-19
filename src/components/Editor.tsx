@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Note } from '../types';
 import { api } from '../api/client';
-import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell, CalendarPlus, Check, Strikethrough, Highlighter, Underline, Quote, ChevronDown, Superscript, Subscript, EyeOff } from 'lucide-react';
+import { FileText, Eye, Edit3, Wand2, Share2, Bold, Italic, Link, Image, List, ListOrdered, Code, Table, CheckCircle, Cloud, CloudOff, Hash, Network, Globe, Bell, CalendarPlus, Check, Copy, Strikethrough, Highlighter, Underline, Quote, ChevronDown, Superscript, Subscript, EyeOff } from 'lucide-react';
 import ReminderModal from './ReminderModal';
 import PublishModal from './PublishModal';
 import ReactMarkdown from 'react-markdown';
@@ -42,6 +42,109 @@ function MermaidDiagram({ code }: { code: string }) {
   }, [code]);
 
   return <div ref={ref} className="my-4 flex justify-center" dangerouslySetInnerHTML={{ __html: svg }} />;
+}
+
+function CodeBlock({ children }: { children?: React.ReactNode }) {
+  const [copied, setCopied] = useState(false);
+
+  let codeString = '';
+  let language = '';
+  let isMermaid = false;
+
+  if (React.isValidElement(children)) {
+    const childProps = children.props as { className?: string; children?: React.ReactNode };
+    const className = childProps?.className || '';
+    const match = /language-(\w+)/.exec(className);
+    if (match) {
+      language = match[1];
+      if (language === 'mermaid') {
+        isMermaid = true;
+      }
+    }
+
+    if (childProps?.children) {
+      if (typeof childProps.children === 'string') {
+        codeString = childProps.children;
+      } else if (Array.isArray(childProps.children)) {
+        codeString = childProps.children.map(c => (typeof c === 'string' ? c : '')).join('');
+      } else {
+        codeString = String(childProps.children);
+      }
+    }
+  } else if (children) {
+    codeString = String(children);
+  }
+
+  codeString = codeString.replace(/\n$/, '');
+
+  if (isMermaid) {
+    return <MermaidDiagram code={codeString} />;
+  }
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(codeString);
+      } else {
+        const textArea = document.createElement('textarea');
+        textArea.value = codeString;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy code: ', err);
+    }
+  };
+
+  return (
+    <div className="relative group/code rounded-xl border border-border/50 my-4 bg-muted/40 dark:bg-muted/20 overflow-hidden">
+      <button
+        type="button"
+        onClick={handleCopy}
+        className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-sans font-medium text-muted-foreground hover:text-foreground bg-secondary/80 hover:bg-secondary border border-border/60 backdrop-blur-md shadow-xs transition-all cursor-pointer select-none"
+        title={copied ? 'Скопировано!' : 'Копировать'}
+      >
+        {copied ? (
+          <>
+            <Check size={13} className="text-emerald-500" />
+            <span className="text-emerald-500 font-medium">Скопировано!</span>
+          </>
+        ) : (
+          <>
+            <Copy size={13} />
+            <span className="hidden sm:inline">Копировать</span>
+          </>
+        )}
+      </button>
+
+      {language ? (
+        <SyntaxHighlighter
+          style={vscDarkPlus as any}
+          language={language}
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            padding: '1rem',
+            paddingRight: '6rem',
+            backgroundColor: 'transparent',
+            fontSize: '0.875rem',
+            lineHeight: '1.6',
+          }}
+        >
+          {codeString}
+        </SyntaxHighlighter>
+      ) : (
+        <pre className="p-4 pr-24 overflow-x-auto text-sm font-mono text-foreground/90 m-0 leading-relaxed font-normal">
+          <code>{codeString}</code>
+        </pre>
+      )}
+    </div>
+  );
 }
 
 function renderContentBase(text: string): string {
@@ -688,29 +791,13 @@ export default function Editor({ note, onUpdate, onWikilinkClick, onTagClick, is
                   h4({children}) {
                     return <h4 className="font-serif text-xl font-semibold text-foreground mt-4 mb-2">{children}</h4>;
                   },
-                  code({node, inline, className, children, ...props}: any) {
-                    const match = /language-(\w+)/.exec(className || '')
-                    if (!inline && match) {
-                      if (match[1] === 'mermaid') {
-                        return <MermaidDiagram code={String(children).replace(/\n$/, '')} />;
-                      }
-                      return (
-                        <SyntaxHighlighter
-                          style={vscDarkPlus as any}
-                          language={match[1]}
-                          PreTag="div"
-                          className="rounded-xl border border-border/50 my-4"
-                          {...props}
-                        >
-                          {String(children).replace(/\n$/, '')}
-                        </SyntaxHighlighter>
-                      );
-                    }
+                  pre: CodeBlock,
+                  code({node, className, children, ...props}: any) {
                     return (
-                      <code className="bg-muted text-foreground/90 px-1.5 py-0.5 rounded-lg text-sm font-mono" {...props}>
+                      <code className={className || "bg-muted text-foreground/90 px-1.5 py-0.5 rounded-lg text-sm font-mono"} {...props}>
                         {children}
                       </code>
-                    )
+                    );
                   },
                   p({children}) {
                     const childrenArray = React.Children.toArray(children);
